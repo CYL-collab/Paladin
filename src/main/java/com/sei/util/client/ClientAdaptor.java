@@ -104,7 +104,7 @@ public class ClientAdaptor {
     public static String getTopActivityName(Device device){
         ShellUtils2.CommandResult commandResult = null;
         try {
-            String command = CommonUtil.ADB_PATH + "adb -s " + device.serial + " shell dumpsys window windows | grep mCurrentFocus";
+            String command = CommonUtil.ADB_PATH + "adb -s " + device.serial + " shell dumpsys window | grep mCurrentFocus";
             commandResult = ShellUtils2.execCommand(command);
             String dumpInfo = commandResult.successMsg;
             String result;
@@ -121,7 +121,7 @@ public class ClientAdaptor {
             if (dumpInfo.contains(ConnectUtil.launch_pkg))
                 result = dumpInfo.substring(start+1, stop);
             else{
-                command = CommonUtil.ADB_PATH + "adb -s " + device.serial + " shell dumpsys window windows | grep mFocusedApp";
+                command = CommonUtil.ADB_PATH + "adb -s " + device.serial + " shell dumpsys window | grep mFocusedApp";
                 commandResult = ShellUtils2.execCommand(command);
                 start = commandResult.successMsg.lastIndexOf(".");
                 stop = commandResult.successMsg.lastIndexOf(" ");
@@ -138,8 +138,8 @@ public class ClientAdaptor {
     public static void startApp(Device d, String pkg){
         String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell monkey -p " + pkg + " -c android.intent.category.LAUNCHER 1";
         ShellUtils2.execCommand(command);
-        // 等待15秒
-        CommonUtil.sleep(15000);
+        // 等待10秒
+        CommonUtil.sleep(10000);
         d.current_pkg = pkg;
     }
 

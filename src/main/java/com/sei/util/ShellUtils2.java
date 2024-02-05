@@ -28,6 +28,18 @@ public class ShellUtils2 {
             }
 
             result = process.waitFor();
+//            try {
+//                if (command.contains("keyevent 4") || command
+//                   .contains("keyevent 82") || command
+//                   .contains("android.intent.category.LAUNCHER") || command
+//                   .contains("input tap")) {
+//                            System.out.println("Added code executed");
+//                            Thread.sleep(2000L);
+//                }
+//            } catch (Exception e) {
+//                /* 41 */         e.printStackTrace();
+//                /* 42 */         return null;
+//                /*    */       }
         }catch(Exception e){
             e.printStackTrace();
             return null;

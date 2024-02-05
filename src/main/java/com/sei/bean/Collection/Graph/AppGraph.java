@@ -3,8 +3,10 @@ package com.sei.bean.Collection.Graph;
 import com.sei.bean.View.Action;
 import com.sei.util.CommonUtil;
 
-import java.util.ArrayList;
-import java.util.List;
+import org.jgrapht.*;
+import org.jgrapht.graph.*;
+
+import java.util.*;
 
 import static com.sei.util.CommonUtil.log;
 
@@ -14,10 +16,34 @@ public class AppGraph {
     List<ActivityNode> activities;
     List<String> webFragments;
 
+    DefaultDirectedGraph<FragmentNode, ActionEdge> directedGraph;
 
     public AppGraph(){
         activities = new ArrayList<>();
         webFragments = new ArrayList<>();
+        directedGraph = new DefaultDirectedGraph<>(ActionEdge.class);
+    }
+
+    public void buildDirectedGraph() {
+        for (ActivityNode an : activities) {
+            for (int j = an.getFragments().size() - 1; j >= 0; j--) {
+                FragmentNode fn = an.getFragments().get(j);
+                directedGraph.addVertex(fn);
+            }
+        }
+        for (ActivityNode an : activities) {
+            for (int j = an.getFragments().size() - 1; j >= 0; j--) {
+                FragmentNode fn = an.getFragments().get(j);
+                for (Action path : fn.getAllPaths()) {
+                    ActionEdge edgetoAdd = new ActionEdge(path);
+                    directedGraph.addEdge(fn, this.getFragment(path.target_activity, path.target_hash), edgetoAdd);
+                }
+            }
+        }
+    }
+
+    public DefaultDirectedGraph<FragmentNode, ActionEdge> getDirectedGraph() {
+        return directedGraph;
     }
 
     public ActivityNode getAct(String act){
@@ -87,6 +113,17 @@ public class AppGraph {
         return this.webFragments;
     }
 
+    public Set<FragmentNode> findSourceFragment() {
+        Set<FragmentNode> sourceVertices = new HashSet<FragmentNode>();
+        for (FragmentNode node : directedGraph.vertexSet()) {
+            if (directedGraph.incomingEdgesOf(node).isEmpty() & !directedGraph.outgoingEdgesOf(node).isEmpty()) {
+                if (Objects.equals(node.activity, "MainActivity")) {
+                    sourceVertices.add(node);
+                }
+            }
+        }
+        return sourceVertices;
+    }
     public void transfer_actions(FragmentNode fragmentNode){
         String activity = fragmentNode.getActivity();
         ActivityNode activityNode = getAct(activity);

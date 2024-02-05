@@ -39,7 +39,11 @@ public class Scheduler {
                 new SpiderStrategy(graphAdjustor, devices),
                 new NewSpiderStrategy(graphAdjustor, devices),
                 new MonkeyStrategy(graphAdjustor, devices),
-                new BeforeSpiderStrategy(graphAdjustor, devices)};
+                new BeforeSpiderStrategy(graphAdjustor, devices),
+                new ModelSearch(graphAdjustor, devices),
+                new DepthFirstStrategy(graphAdjustor, devices)
+        };
+
         if (strategys == null){
             log("", "why???");
         }

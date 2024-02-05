@@ -1,5 +1,5 @@
 {
-    "ADB_PATH": "/Users/ycx/Documents/android-sdk-macosx/platform-tools/",
+    "ADB_PATH": "C:\\Users\\jxche\\scoop\\apps\\android-sdk\\current\\platform-tools\\",
     "DEFAULT_PORT": 5700,
     "BACKEND": "UIAutomator",
     "SCREENSHOT" : true,
@@ -7,10 +7,10 @@
     "DEVICES": [
         {
             "IP": "127.0.0.1",
-            "SERIAL": "192.168.56.101:5555",
+            "SERIAL": "192.168.248.104:5555",
             "PORT": 6161
         }
     ],
-    "PACKAGE": "com.douban.movie",
+    "PACKAGE": "com.flauschcode.broccoli",
     "TARGET_ACTIVITY" : "LegacySubjectActivity"
 }

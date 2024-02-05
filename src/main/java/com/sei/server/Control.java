@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.sei.agent.Device;
 import com.sei.bean.View.ViewTree;
 import com.sei.modules.test.ReplayTest;
+import com.sei.modules.test.SearchTest;
 import com.sei.server.component.Handler;
 import com.sei.server.component.Scheduler;
 import com.sei.util.*;
@@ -125,6 +126,53 @@ public class Control extends NanoHTTPD{
                     d.start();
                 }
                 return newFixedLengthResponse("replay start");
+            }
+        });
+
+        register("/search", new Handler() {
+            @Override
+            public Response onRequest(IHTTPSession session) {
+                // parameter format : /search?serial=xxx&
+                if (session.getQueryParameterString() == null){
+                    return newFixedLengthResponse("format: search?serial=xxx");
+                }
+                String query = session.getQueryParameterString().substring(7);
+                List<String> route_list = Arrays.asList(query.split("&"));
+                String serial = route_list.get(0);
+                if (devices.containsKey(serial)){
+                    return newFixedLengthResponse(serial + " still running");
+                }
+
+                Device d = null;
+                try {
+                    JSONArray device_config = config_json.getJSONArray("DEVICES");
+                    for (int i = 0; i < device_config.length(); i++) {
+                        JSONObject c = device_config.getJSONObject(i);
+                        if (!c.getString("SERIAL").equals(serial))
+                            continue;
+                        String pkg = config_json.getString("PACKAGE");
+                        String ip = "http://" + c.getString("IP");
+                        String pass = "";
+                        if (c.has("PASSWORD")) pass = c.getString("PASSWORD");
+                        if (ip.contains("127.0.0.1"))
+                            ShellUtils2.execCommand("adb -s " + serial + " forward tcp:" + c.getInt("PORT") + " tcp:6161");
+                        d = new Device(ip, c.getInt("PORT"), serial, pkg, pass, 8);
+                        //d.setRoute_list(route_list);
+                        if (!scheduler.bind(d))
+                            return newFixedLengthResponse(serial + " still running?");
+                        //ClientAdaptor.stopApp(d, pkg);
+                        //d.start();
+                        break;
+                    }
+                }catch (Exception e){
+                    e.printStackTrace();
+                    return newFixedLengthResponse("error");
+                }
+
+                SearchTest test = new SearchTest(d, scheduler);
+                test.start();
+
+                return newFixedLengthResponse("Search start");
             }
         });
 
@@ -337,6 +385,9 @@ public class Control extends NanoHTTPD{
                     String target = config_json.getString("TARGET_ACTIVITY");
                     d.setTargetActivity(target);
                     log("Target：" + target);
+                } else if(argv.length >0 && argv[0].contains("-h")) {
+                    CommonUtil.log("in manual mode!");
+                    d = new Device(ip, c.getInt("PORT"), serial, pkg, pass, Device.MODE.MANUAL);
                 } else {
                     d = new Device(ip, c.getInt("PORT"), serial, pkg, pass, Device.MODE.DFS);
                 }

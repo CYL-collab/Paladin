@@ -132,7 +132,7 @@ public class ModelReplay implements Strategy{
         return null;
     }
 
-    private Decision replay(ViewTree tree, String serial, String target){
+    Decision replay(ViewTree tree, String serial, String target){
         if (replayLimit.get(serial) > 4){
             return new Decision(Decision.CODE.STOP);
         }

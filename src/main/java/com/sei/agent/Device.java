@@ -17,10 +17,9 @@ import com.sei.util.ShellUtils2;
 import com.sei.util.client.ClientAdaptor;
 import com.sei.util.client.ClientAutomator;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Device extends Thread{
     public String ip;
@@ -46,6 +45,7 @@ public class Device extends Thread{
     Boolean LOGIN_SUCCESS;
 
     public String targetActivity;
+    public List<Action> actions;
 
     public interface UI{
         int NEW = 0;
@@ -64,6 +64,8 @@ public class Device extends Thread{
         int NEWSPIDER = 5;
         int MONKEY = 6;
         int BEFORESPIDER = 7;
+        int SEARCH = 8;
+        int MANUAL = 9;
     }
 
     public static void main(String[] argv){
@@ -111,6 +113,21 @@ public class Device extends Thread{
             initiate();
             Decision decision = null;
 
+            if (mode == MODE.SEARCH) {
+                collectMetric();
+                for (Action action : this.actions) {
+                    decision = new Decision(Decision.CODE.CONTINUE, action);
+                    response = execute_decision(decision);
+                    CommonUtil.sleep(1000);
+                }
+                collectMetric();
+//                decision = new Decision(Decision.CODE.SEQ, actions);
+//                response = execute_decision(decision);
+//                CommonUtil.sleep(1000);
+                Exit = true;
+                return;
+            }
+
             if (mode != MODE.REPLAY) {
                 if (fragmentStack == null) {
                     fragmentStack = new FragmentStack();
@@ -124,19 +141,32 @@ public class Device extends Thread{
                     }
                 }
             }
-
             if (decision == null) {
                 Action action = null;
                 decision = new Decision(Decision.CODE.CONTINUE, action);
                 decision = scheduler.update(serial, currentTree, currentTree, decision, UI.NEW);
-                response = execute_decision(decision);
+                if (mode != MODE.MANUAL) {
+                    response = execute_decision(decision);
+                }else response = UI.NEW;
             }
 
             while(Exit == false){
                 //CommonUtil.log("new tree:" + newTree.getActivityName());
+                if (mode == MODE.MANUAL) {
+                    response = UI.SAME;
+                    ViewTree tree = new ViewTree();
+                    while (response == UI.SAME) {
+                        CommonUtil.sleep(1000);
+                        tree = getCurrentTree();
+                        response = isNewView(currentTree, tree);
+                    }
+                    newTree = tree;
+                }
                 decision = scheduler.update(serial, currentTree, newTree, decision, response);
                 currentTree = newTree;
-                response = execute_decision(decision);
+                if (mode != MODE.MANUAL) {
+                    response = execute_decision(decision);
+                }
             }
 
             //结束前反馈STOP命令，使scheduler将其在设备运行表中删除
@@ -148,6 +178,30 @@ public class Device extends Thread{
         }
     }
 
+    private void collectMetric() {
+        String memoryInfo = Objects.requireNonNull(ShellUtils2.execCommand(CommonUtil.ADB_PATH + "adb -s " + this.serial + " shell dumpsys meminfo " + this.current_pkg)).successMsg;
+        Pattern pssPattern = Pattern.compile("TOTAL PSS:\\s*(\\d+)");
+        Pattern rssPattern = Pattern.compile("TOTAL RSS:\\s*(\\d+)");
+
+        Matcher pssMatcher = pssPattern.matcher(memoryInfo);
+        Matcher rssMatcher = rssPattern.matcher(memoryInfo);
+
+
+        if (pssMatcher.find()) {
+            pssMatcher.group(1);
+        }
+
+        if (rssMatcher.find()) {
+            System.out.println("Total RSS: " + rssMatcher.group(1) + " KB");
+        }
+    }
+    private int isNewView(ViewTree currentTree, ViewTree newTree) {
+        if (!newTree.getActivityName().equals(currentTree.getActivityName()) || newTree.getTreeStructureHash() != currentTree.getTreeStructureHash()){
+            return UI.NEW;
+        }else{
+            return UI.SAME;
+        }
+    }
     public ViewTree getCurrentTree() throws Exception{
         return ClientAdaptor.getCurrentTree(this);
     }
@@ -304,6 +358,7 @@ public class Device extends Thread{
                     return UI.SAME;
                 }
             }
+            CommonUtil.sleep(1000);
         }
         //log("after schedule stack size: " + fragmentStack.getSize());
         for(RuntimeFragmentNode rfn : rfn_cache)
@@ -524,6 +579,10 @@ public class Device extends Thread{
 
     public List<String> getRoute_list(){
         return this.route_list;
+    }
+
+    public String popFirstRoute() {
+        return this.route_list.remove(0);
     }
 
     public String getTargetActivity() {
