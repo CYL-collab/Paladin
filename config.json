@@ -11,6 +11,6 @@
             "PORT": 6161
         }
     ],
-    "PACKAGE": "com.flauschcode.broccoli",
+    "PACKAGE": "de.tnmgl.ntodotxt",
     "TARGET_ACTIVITY" : "LegacySubjectActivity"
 }

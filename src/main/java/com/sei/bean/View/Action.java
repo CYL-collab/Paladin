@@ -1,5 +1,9 @@
 package com.sei.bean.View;
+import com.sei.bean.Collection.Graph.FragmentNode;
+
 import java.io.Serializable;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Created by vector on 16/5/15.
@@ -71,6 +75,8 @@ public class Action implements Serializable{
         int ENTERTEXT = 7;
         int SCROLLLEFT = 8;
         int SCROLLRIGHT = -8;
+        int ENABLEBT = 9;
+        int DISABLEBT = -9;
     }
 
     public Action(String path, int action) {
@@ -87,4 +93,14 @@ public class Action implements Serializable{
     }
 
     public String getContent(){return content;}
+    public FragmentNode findFragmentByAction(Set<FragmentNode> fragments) {
+        for (FragmentNode fragment : fragments) {
+            List<Action> actions = fragment.getAllPaths();
+            // 检查这个Fragment的allPaths是否包含给定的Action
+            if (actions.contains(this)) {
+                return fragment; // 找到了，返回这个Fragment
+            }
+        }
+        return null; // 如果没有找到，返回null
+    }
 }

@@ -159,6 +159,24 @@ public class ClientAutomator {
             case Action.action_list.SCROLLUP:
                 ClientAdaptor.scrollUp(d);
                 break;
+            case Action.action_list.ROWUP:
+                ClientAdaptor.rowUp(d);
+                break;
+            case Action.action_list.ROWDOWN:
+                ClientAdaptor.rowDown(d);
+                break;
+            case Action.action_list.ROWLEFT:
+                ClientAdaptor.rowLeft(d);
+                break;
+            case Action.action_list.ROWRIGHT:
+                ClientAdaptor.rowRight(d);
+                break;
+            case Action.action_list.ENABLEBT:
+                ClientAdaptor.enableBT(d);
+                break;
+            case Action.action_list.DISABLEBT:
+                ClientAdaptor.disableBT(d);
+                break;
         }
 
         CommonUtil.sleep(800);

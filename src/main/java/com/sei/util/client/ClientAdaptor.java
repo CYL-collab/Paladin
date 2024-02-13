@@ -126,6 +126,10 @@ public class ClientAdaptor {
                 start = commandResult.successMsg.lastIndexOf(".");
                 stop = commandResult.successMsg.lastIndexOf(" ");
                 result = commandResult.successMsg.substring(start+1, stop);
+                if (result.endsWith("}")) {
+                    // 去除结尾的'}'
+                    result = result.substring(0, result.length() - 1);
+                }
             }
             return result;
         }catch (Exception e){
@@ -205,7 +209,34 @@ public class ClientAdaptor {
             }
         }
     }
-
+    public static void rowUp(Device d){
+        CommonUtil.log("row up");
+        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell settings put system user_rotation 2";
+        ShellUtils2.execCommand(command);
+    }
+    public static void rowDown(Device d){
+        CommonUtil.log("row down");
+        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell settings put system user_rotation 0";
+        ShellUtils2.execCommand(command);
+    }
+    public static void rowLeft(Device d){
+        CommonUtil.log("row left");
+        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell settings put system user_rotation 3";
+        ShellUtils2.execCommand(command);
+    }
+    public static void rowRight(Device d){
+        CommonUtil.log("row right");
+        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell settings put system user_rotation 1";
+        ShellUtils2.execCommand(command);
+    }
+    public static void enableBT(Device d) {
+        String command2 = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell svc bluetooth enable";
+        ShellUtils2.execCommand(command2);
+    }
+    public static void disableBT(Device d) {
+        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell svc bluetooth disable";
+        ShellUtils2.execCommand(command);
+    }
     public static void scrollUp(Device d){
         CommonUtil.log("scroll up");
         String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input swipe 300 300 500 1300 300";

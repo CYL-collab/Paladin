@@ -1,15 +1,17 @@
 package com.sei.modules.test;
 
 import com.sei.agent.Device;
+import com.sei.bean.Collection.Graph.FragmentNode;
+import com.sei.bean.Collection.Graph.GraphAdjustor;
 import com.sei.bean.View.Action;
 import com.sei.bean.View.ViewTree;
-import com.sei.server.component.Decision;
 import com.sei.server.component.Scheduler;
 import com.sei.util.CommonUtil;
-import com.sei.util.ShellUtils2;
 import com.sei.util.client.ClientAdaptor;
 
 import java.util.*;
+
+import static com.sei.util.CommonUtil.random;
 
 public class GeneticAlgo {
     private static final int POPULATION_SIZE = 20;
@@ -20,12 +22,14 @@ public class GeneticAlgo {
     private List<GeneticAlgo.Individual> population;
     private Device d;
     private final Scheduler scheduler;
+    private final GraphAdjustor graphAdjustor;
     private ViewTree currentViewTree;
     private List<GeneticAlgo.Individual> initialPopulationCandidate;
 
     public GeneticAlgo(Device device, Scheduler scheduler) {
         this.d = device;
         this.scheduler = scheduler;
+        this.graphAdjustor = scheduler.graphAdjustor;
         this.initialPopulationCandidate = new ArrayList<GeneticAlgo.Individual>();
     }
 
@@ -47,16 +51,16 @@ public class GeneticAlgo {
         if (GeneticAlgo.POPULATION_SIZE <= initialPopulationCandidate.size()) {
             initialPopulation = initialPopulationCandidate.subList(0, GeneticAlgo.POPULATION_SIZE);
         } else {
-            initialPopulation = extendListToSize(initialPopulationCandidate, GeneticAlgo.POPULATION_SIZE);
+            initialPopulation = extendListToSize(initialPopulationCandidate);
         }
         this.population = initialPopulation;
     }
 
-    private static List<GeneticAlgo.Individual> extendListToSize(List<GeneticAlgo.Individual> list, int targetSize) {
+    private static List<GeneticAlgo.Individual> extendListToSize(List<Individual> list) {
         Random random = new Random();
         List<GeneticAlgo.Individual> result = new ArrayList<>(list);
 
-        while (result.size() < targetSize) {
+        while (result.size() < GeneticAlgo.POPULATION_SIZE) {
             // 随机选取一个元素并复制
             int randomIndex = random.nextInt(result.size());
             result.add(result.get(randomIndex));
@@ -121,17 +125,19 @@ public class GeneticAlgo {
 
             // 根据交叉率决定是否进行交叉
             if (random.nextDouble() < CROSSOVER_RATE) {
-                List<Action> childActionsInCycle1 = new ArrayList<>(parent1.getActionsInCycle());
-                List<Action> childActionsInCycle2 = new ArrayList<>(parent2.getActionsInCycle());
-                List<Action> childActionsToCycle1 = new ArrayList<>(parent1.getActionsToCycle());
-                List<Action> childActionsToCycle2 = new ArrayList<>(parent2.getActionsToCycle());
-
-                // 执行交叉操作
-                childActionsInCycle1 = crossoverInCycle(childActionsInCycle1, childActionsInCycle2).get(0);
-                childActionsInCycle2 = crossoverInCycle(childActionsInCycle1, childActionsInCycle2).get(1);
-                GeneticAlgo.Individual child1 = new GeneticAlgo.Individual(childActionsToCycle1, childActionsInCycle1);
-                GeneticAlgo.Individual child2 = new GeneticAlgo.Individual(childActionsToCycle2, childActionsInCycle2);
-
+                GeneticAlgo.Individual child1 = null;
+                GeneticAlgo.Individual child2 = null;
+                int mutationType = random.nextInt(2); // 0, 1, 或 2，分别代表删除、增加、系统事件
+                switch (mutationType) {
+                    case 0:
+                        child1 = crossoverToCycle(parent1, parent2).get(0);
+                        child2 = crossoverToCycle(parent1, parent2).get(1);
+                        break;
+                    case 1:
+                        child1 = crossoverAcrossCycle(parent1, parent2).get(0);
+                        child2 = crossoverAcrossCycle(parent1, parent2).get(1);
+                        break;
+                }
                 newPopulation.add(child1);
                 newPopulation.add(child2);
             } else {
@@ -158,18 +164,101 @@ public class GeneticAlgo {
 
 
     private List<GeneticAlgo.Individual> mutate(List<GeneticAlgo.Individual> newPopulation) {
-        // Implement mutation logic
+        for (Individual individual : newPopulation) {
+            Random random = new Random();
+            if (random.nextDouble() < MUTATION_RATE) {
+                // 选择变异类型
+                int mutationType = random.nextInt(3); // 0, 1, 或 2，分别代表删除、增加、系统事件
+                switch (mutationType) {
+                    case 0:
+                        mutateByDeletion(individual);
+                        break;
+                    case 1:
+                        mutateByAddition(individual);
+                        break;
+                    case 2:
+                        mutateBySystemEvent(individual);
+                        break;
+                }
+            }
+        }
         return newPopulation;
+    }
+
+    private void mutateByDeletion(GeneticAlgo.Individual individual) {
+        List<Action> deletedActionCandidate = new ArrayList<>();
+        List<Action> redirectedActionCandidate = new ArrayList<>();
+        for (int i = 1 ; i < individual.getActionsInCycle().size() - 1 ; i++) {
+            String fn_after = individual.getActionsInCycle().get(i).target;
+            FragmentNode fn_before = individual.getActionsInCycle().get(i-1).findFragmentByAction(graphAdjustor.appGraph.getDirectedGraph().vertexSet());
+            for (Action action : fn_before.getAllPaths()) {
+                if (Objects.equals(action.target, fn_after)) {
+                    deletedActionCandidate.add(individual.getActionsInCycle().get(i));
+                    redirectedActionCandidate.add(action);
+                    break;
+                }
+            }
+        }
+        if (deletedActionCandidate.isEmpty()) {
+            return;
+        } else {
+            int mutationIndex = random.nextInt(deletedActionCandidate.size());
+            individual.actionsInCycle.remove(deletedActionCandidate.get(mutationIndex));
+            individual.actionsInCycle.set(mutationIndex - 1, redirectedActionCandidate.get(mutationIndex));
+        }
+    }
+    private void mutateByAddition(GeneticAlgo.Individual individual) {
+        List<Action> addActionCandidate = new ArrayList<>();
+        List<Action> redirectedActionCandidate = new ArrayList<>();
+        for (int i = 0 ; i < individual.getActionsInCycle().size() - 1 ; i++) {
+            String fn_after = individual.getActionsInCycle().get(i).target;
+            FragmentNode fn_before = individual.getActionsInCycle().get(i).findFragmentByAction(graphAdjustor.appGraph.getDirectedGraph().vertexSet());
+            for (Action action_before : fn_before.getAllPaths()) {
+                FragmentNode fn_mid = graphAdjustor.appGraph.getFragment(action_before.target);
+                for (Action action_mid : fn_mid.getAllPaths()) {
+                    if (Objects.equals(action_mid.target, fn_after)) {
+                        addActionCandidate.add(action_mid);
+                        redirectedActionCandidate.add(action_before);
+                    }
+                }
+            }
+        }
+        if (addActionCandidate.isEmpty()) {
+            return;
+        } else {
+            int mutationIndex = random.nextInt(addActionCandidate.size());
+            individual.actionsInCycle.add(addActionCandidate.get(mutationIndex));
+            individual.actionsInCycle.set(mutationIndex - 1, redirectedActionCandidate.get(mutationIndex));
+        }
+    }
+    private void mutateBySystemEvent(GeneticAlgo.Individual individual) {
+        int mutationIndex = random.nextInt(individual.getActionsInCycle().size());
+        int mutationType = random.nextInt(2); // 0, 1, 或 2，分别代表不同系统事件
+        switch (mutationType) {
+            case 0:
+                individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWDOWN));
+                individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWRIGHT));
+                break;
+            case 1:
+                individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.DISABLEBT));
+                individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ENABLEBT));
+                break;
+        }
     }
 
     private GeneticAlgo.Individual findBestIndividual() {
         // Find the individual with the highest fitness
         return population.get(0); // Placeholder
     }
-    public static List<List<Action>> crossoverToCycle(List<Action> parent1, List<Action> parent2) {
+    public static List<GeneticAlgo.Individual> crossoverInCycle(GeneticAlgo.Individual parent1, GeneticAlgo.Individual parent2) {
+
         return Arrays.asList(new ArrayList<>(parent1), new ArrayList<>(parent2));
     }
-    public static List<List<Action>> crossoverInCycle(List<Action> parent1, List<Action> parent2) {
+    public static List<GeneticAlgo.Individual> crossoverAcrossCycle(GeneticAlgo.Individual parent1, GeneticAlgo.Individual parent2) {
+
+        return Arrays.asList(new ArrayList<>(parent1), new ArrayList<>(parent2));
+    }
+    public static List<GeneticAlgo.Individual> crossoverToCycle(GeneticAlgo.Individual parent1, GeneticAlgo.Individual parent2) {
         if (parent1.isEmpty() || parent2.isEmpty()) return null;
 
         Optional<String> crossoverPoint = findCommonTarget(parent1, parent2);
@@ -219,8 +308,8 @@ public class GeneticAlgo {
     }
     // Inner class to represent an individual in the population
     public static class Individual {
-        private List<Action> actionsToCycle;
-        private List<Action> actionsInCycle;
+        public List<Action> actionsToCycle;
+        public List<Action> actionsInCycle;
         private Double fitness;
         private double metricGrowth;
         public Boolean canExecute;
