@@ -384,7 +384,7 @@ public class GraphAdjustor extends UiTransition{
         if (currentNode.path_index.size() < currentNode.path_list.size()) {
             for (int i = 0; i < currentNode.path_list.size(); i++){
                 String path = currentNode.path_list.get(i);
-                if (currentNode.edit_fields.contains(path)){
+                if (!currentNode.path_index.contains(i) && currentNode.edit_fields.contains(path)){
                     currentNode.path_index.add(i);
                     log(currentNode.getSignature() +  " path: " + currentNode.path_index.size() + "/" + currentNode.path_list.size());
                     return new Action(path, Action.action_list.ENTERTEXT);
