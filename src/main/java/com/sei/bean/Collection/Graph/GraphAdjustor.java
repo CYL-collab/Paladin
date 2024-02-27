@@ -10,6 +10,8 @@ import com.sei.util.ClientUtil;
 import com.sei.util.CommonUtil;
 import com.sei.util.ConnectUtil;
 import com.sei.util.SerializeUtil;
+import com.sei.util.client.ClientAdaptor;
+import com.sun.org.apache.xpath.internal.operations.Bool;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -380,6 +382,14 @@ public class GraphAdjustor extends UiTransition{
         //log("current node: " + currentNode.getSignature());
         Action action = null;
         if (currentNode.path_index.size() < currentNode.path_list.size()) {
+            for (int i = 0; i < currentNode.path_list.size(); i++){
+                String path = currentNode.path_list.get(i);
+                if (currentNode.edit_fields.contains(path)){
+                    currentNode.path_index.add(i);
+                    log(currentNode.getSignature() +  " path: " + currentNode.path_index.size() + "/" + currentNode.path_list.size());
+                    return new Action(path, Action.action_list.ENTERTEXT);
+                }
+            }
             int ser = CommonUtil.shuffle(currentNode.path_index, currentNode.path_list.size());
 
             currentNode.path_index.add(ser);
