@@ -20,6 +20,7 @@ import com.sei.util.client.ClientAutomator;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class Device extends Thread{
     public String ip;
@@ -53,6 +54,7 @@ public class Device extends Thread{
         int OUT = -3;
         int SAME = 2;
         int OUTANDIN = 3;
+        int CAM = 4;
     }
 
     public interface MODE{
@@ -114,13 +116,13 @@ public class Device extends Thread{
             Decision decision = null;
 
             if (mode == MODE.SEARCH) {
-                collectMetric();
+                // collectMetric();
                 for (Action action : this.actions) {
                     decision = new Decision(Decision.CODE.CONTINUE, action);
                     response = execute_decision(decision);
                     CommonUtil.sleep(1000);
                 }
-                collectMetric();
+                // collectMetric();
 //                decision = new Decision(Decision.CODE.SEQ, actions);
 //                response = execute_decision(decision);
 //                CommonUtil.sleep(1000);
@@ -178,23 +180,26 @@ public class Device extends Thread{
         }
     }
 
-    private void collectMetric() {
-        String memoryInfo = Objects.requireNonNull(ShellUtils2.execCommand(CommonUtil.ADB_PATH + "adb -s " + this.serial + " shell dumpsys meminfo " + this.current_pkg)).successMsg;
-        Pattern pssPattern = Pattern.compile("TOTAL PSS:\\s*(\\d+)");
-        Pattern rssPattern = Pattern.compile("TOTAL RSS:\\s*(\\d+)");
-
-        Matcher pssMatcher = pssPattern.matcher(memoryInfo);
-        Matcher rssMatcher = rssPattern.matcher(memoryInfo);
-
-
-        if (pssMatcher.find()) {
-            pssMatcher.group(1);
-        }
-
-        if (rssMatcher.find()) {
-            System.out.println("Total RSS: " + rssMatcher.group(1) + " KB");
-        }
-    }
+//    private List<Double> collectMetric() {
+//        String memoryInfo = Objects.requireNonNull(ShellUtils2.execCommand(CommonUtil.ADB_PATH + "adb -s " + this.serial + " shell dumpsys meminfo " + this.current_pkg)).successMsg;
+//        Pattern pssPattern = Pattern.compile("TOTAL PSS:\\s*(\\d+)");
+//        Pattern rssPattern = Pattern.compile("TOTAL RSS:\\s*(\\d+)");
+//
+//        Matcher pssMatcher = pssPattern.matcher(memoryInfo);
+//        Matcher rssMatcher = rssPattern.matcher(memoryInfo);
+//        Double pss = null;
+//        Double rss = null;
+//
+//        if (pssMatcher.find()) {
+//            pss = Double.parseDouble(pssMatcher.group(1));
+//        }
+//
+//        if (rssMatcher.find()) {
+//            rss = Double.parseDouble(rssMatcher.group(1));
+//        }
+//
+//        return Arrays.asList(pss, rss);
+//    }
     private int isNewView(ViewTree currentTree, ViewTree newTree) {
         if (!newTree.getActivityName().equals(currentTree.getActivityName()) || newTree.getTreeStructureHash() != currentTree.getTreeStructureHash()){
             return UI.NEW;
@@ -259,15 +264,34 @@ public class Device extends Thread{
             Action action = decision.action;
             //如果是输入框，先点击获得焦点再输入
             if (action.getAction() == Action.action_list.ENTERTEXT) {
-
                 response = ClientAdaptor.execute_action(this, Action.action_list.CLICK, currentTree, action.getPath());
                 if (response == UI.SAME) {
                     response = ClientAdaptor.execute_action(this, Action.action_list.ENTERTEXT, currentTree, "test");
                 }else {
                     action.setAction(Action.action_list.CLICK);
                 }
-            }else
+            } else if (action.getAction() == Action.action_list.FILLANDCLICK) {
+                List<String> pathsToEdit = getPathsToEdit();
+                for (String path : pathsToEdit) {
+                    response = ClientAdaptor.execute_action(this, Action.action_list.CLICK, currentTree, path);
+                    if (response == UI.SAME) {
+                        response = ClientAdaptor.execute_action(this, Action.action_list.ENTERTEXT, currentTree, "test");
+                    }else {
+                        action.setAction(Action.action_list.CLICK);
+                        action.setPath(path);
+                        break;
+                    }
+                }
+                if (response == UI.SAME) {
+                    response = ClientAdaptor.execute_action(this, Action.action_list.CLICK, currentTree, action.getPath());
+                }
+            } else {
                 response = ClientAdaptor.execute_action(this, action.getAction(), currentTree, action.getPath());
+            }
+
+            if (response == UI.OUT && mode != MODE.REPLAY && Objects.equals(currentTree.getActivityName(), "com.android.camera2_CaptureActivity")) {
+                response = UI.CAM;
+            }
 
             if (response != UI.SAME && response != UI.OUT) {
                 if (mode != MODE.REPLAY && update_stack(action) == UI.OUT){
@@ -309,6 +333,34 @@ public class Device extends Thread{
         }
 
         return response;
+    }
+
+    private List<String> getPathsToEdit() {
+        List<String> paths = currentTree.getClickable_list();
+        Map<String, Integer> pathCount = new HashMap<>();
+        for (String path : paths) {
+            if (path.endsWith("TextView")) {
+                pathCount.put(path, pathCount.getOrDefault(path, 0) + 1);
+            }
+        }
+
+        List<String> pathsToEdit = new ArrayList<>();
+        Map<String, Integer> currentIndex = new HashMap<>();
+        for (String path : paths) {
+            if (path.endsWith("TextView")) {
+                int count = pathCount.get(path);
+                int index = currentIndex.getOrDefault(path, 0);
+                if (count > 1) {
+                    // 如果有多个重复的path，依次加上#0, #1, ...
+                    pathsToEdit.add(path + "#" + index);
+                    currentIndex.put(path, index + 1);
+                } else {
+                    // 如果只有一个path，加上#0
+                    pathsToEdit.add(path + "#0");
+                }
+            }
+        }
+        return pathsToEdit;
     }
 
     public Boolean try_back() throws Exception{
@@ -533,7 +585,12 @@ public class Device extends Thread{
                     }
 
                     int idx = action.path.indexOf("#");
-                    String xpath = action.path.substring(0, idx);
+                    String xpath = "";
+                    if (idx == -1) {
+                        xpath = action.path;
+                    } else {
+                        xpath = action.path.substring(0, idx);
+                    }
                     if (currentTree.getClickable_list().contains(xpath))
                         p = 0;
                 }

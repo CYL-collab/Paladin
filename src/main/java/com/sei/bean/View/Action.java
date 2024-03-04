@@ -3,6 +3,7 @@ import com.sei.bean.Collection.Graph.FragmentNode;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -77,6 +78,8 @@ public class Action implements Serializable{
         int SCROLLRIGHT = -8;
         int ENABLEBT = 9;
         int DISABLEBT = -9;
+        int FILLANDCLICK = 10;
+        int CAMERASHOT = 11;
     }
 
     public Action(String path, int action) {
@@ -91,15 +94,29 @@ public class Action implements Serializable{
         this(path, action);
         this.content = content;
     }
+    @Override
+    public int hashCode() {
+        return Objects.hash(path, target, action);
+    }
 
     public String getContent(){return content;}
     public FragmentNode findFragmentByAction(Set<FragmentNode> fragments) {
         for (FragmentNode fragment : fragments) {
             List<Action> actions = fragment.getAllPaths();
             // 检查这个Fragment的allPaths是否包含给定的Action
-            if (actions.contains(this)) {
-                return fragment; // 找到了，返回这个Fragment
+            for (Action action : actions) {
+//                if (Objects.equals(this.target, action.target)) {
+//                    if (Object.equals(this.path, action.path)) {
+//                        return fragment;
+//                    }
+//                }
+                if (this.hashCode() == action.hashCode()) {
+                    return fragment;
+                }
             }
+//            if (actions.contains(this)) {
+//                return fragment; // 找到了，返回这个Fragment
+//            }
         }
         return null; // 如果没有找到，返回null
     }

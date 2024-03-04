@@ -3,6 +3,7 @@
 .gradle/
 out/
 build/
+output/
 
 # Files
 graph.json

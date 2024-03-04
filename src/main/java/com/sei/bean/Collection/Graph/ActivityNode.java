@@ -77,7 +77,7 @@ public class ActivityNode {
                 //深拷贝点击过的节点
                 if (!REPLAY) {
                     for (int i : vc.path_index) {
-                        if (i > vc.path_list.size()) continue;
+                        if (i >= vc.path_list.size()) continue;
                         String path = vc.path_list.get(i);
                         if (fc.path_list.contains(path)) {
                             int idx = fc.path_list.indexOf(path);

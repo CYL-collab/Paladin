@@ -17,16 +17,14 @@ import org.jgrapht.alg.cycle.SzwarcfiterLauerSimpleCycles;
 import org.jgrapht.graph.DefaultDirectedGraph;
 
 import javax.management.remote.rmi._RMIConnection_Stub;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static com.sei.util.CommonUtil.calc_similarity;
 import static com.sei.util.CommonUtil.log;
 
 public class SearchTest extends Thread{
-    private Scheduler scheduler;
-    private GraphAdjustor graphAdjustor;
+    private final Scheduler scheduler;
+    private final GraphAdjustor graphAdjustor;
     private double match = 0.0;
     private Device d;
     private List<String> visits;
@@ -51,17 +49,12 @@ public class SearchTest extends Thread{
         sourceNode = getSourceFragment();
         // Initial Population
         for(List<FragmentNode> cycle : cycles) {
-            List<Action>[] paths = genActionsFromCycle(cycle);
-            List<Action> pathInCycle;
-            List<Action> pathToCycle;
-            if (paths == null) {
+            GeneticAlgo.Individual ind = genIndividualFromCycle(cycle);
+            if (ind == null) {
                 continue;
             } else {
-                pathToCycle = paths[0];
-                pathInCycle = paths[1];
+                geneticAlgo.addToInitialPopulationCandidate(ind);
             }
-            GeneticAlgo.Individual ind = new GeneticAlgo.Individual(pathToCycle, pathInCycle);
-            geneticAlgo.addToInitialPopulationCandidate(ind);
         }
         geneticAlgo.initializePopulation();
         geneticAlgo.run();
@@ -71,7 +64,7 @@ public class SearchTest extends Thread{
 //            e.printStackTrace();
 //        }
     }
-    private List<Action>[] genActionsFromCycle(List<FragmentNode> cycle) {
+    private GeneticAlgo.Individual genIndividualFromCycle(List<FragmentNode> cycle) {
         FragmentNode cycleStartNode = cycle.get(0);
         List<Action> pathToCycle = buildPath(sourceNode, cycleStartNode);
         List<Action> actions;
@@ -83,6 +76,7 @@ public class SearchTest extends Thread{
                 pathToCycle = new ArrayList<>();
             }
         }
+        List<FragmentNode> fragmentsToCycle = genFragmentsByActions(pathToCycle);
         FragmentNode lastNode = cycleStartNode;
         List<Action> pathInCycle = new ArrayList<>();
         for (FragmentNode nextNode : cycle) {
@@ -92,13 +86,36 @@ public class SearchTest extends Thread{
             lastNode = nextNode;
         }
         pathInCycle.addAll(buildPath(cycle.get(cycle.size() - 1), cycleStartNode));
-//        List<Action> pathInCycleManyTimes = new ArrayList<>();
-//        for (int i = 0; i < 50 ; i ++) {
-//            pathInCycleManyTimes.addAll(pathInCycle);
-//        }
-//        pathToCycle.addAll(pathInCycleManyTimes);
-        return new List[]{pathToCycle, pathInCycle};
+        return new GeneticAlgo.Individual(pathToCycle, pathInCycle, fragmentsToCycle, cycle);
     }
+//    private List<Action>[] genActionsFromCycle(List<FragmentNode> cycle) {
+//        FragmentNode cycleStartNode = cycle.get(0);
+//        List<Action> pathToCycle = buildPath(sourceNode, cycleStartNode);
+//        List<Action> actions;
+//        if (cycle.size() < 3) return null;
+//        if (pathToCycle == null ) {
+//            if (sourceNode != cycleStartNode) {
+//                return null;
+//            }else {
+//                pathToCycle = new ArrayList<>();
+//            }
+//        }
+//        FragmentNode lastNode = cycleStartNode;
+//        List<Action> pathInCycle = new ArrayList<>();
+//        for (FragmentNode nextNode : cycle) {
+//            if (nextNode == cycleStartNode) continue;
+//            Action nextAction = buildPath(lastNode, nextNode).get(0);
+//            pathInCycle.add(nextAction);
+//            lastNode = nextNode;
+//        }
+//        pathInCycle.addAll(buildPath(cycle.get(cycle.size() - 1), cycleStartNode));
+////        List<Action> pathInCycleManyTimes = new ArrayList<>();
+////        for (int i = 0; i < 50 ; i ++) {
+////            pathInCycleManyTimes.addAll(pathInCycle);
+////        }
+////        pathToCycle.addAll(pathInCycleManyTimes);
+//        return new List[]{pathToCycle, pathInCycle};
+//    }
     private FragmentNode getSourceFragment() {
         ClientAdaptor.startApp(d, d.current_pkg);
         FragmentNode sourceFragment = null;
@@ -118,6 +135,14 @@ public class SearchTest extends Thread{
             e.printStackTrace();
         }
         return sourceFragment;
+    }
+    private List<FragmentNode> genFragmentsByActions(List<Action> actions) {
+        if (actions.isEmpty()) return null;
+        List<FragmentNode> fragments = new ArrayList<>();
+        for (Action action: actions) {
+            fragments.add(action.findFragmentByAction(graphAdjustor.appGraph.getDirectedGraph().vertexSet()));
+        }
+        return fragments;
     }
     private void runByActions(List<Action> actions) throws InterruptedException {
         ClientAdaptor.stopApp(d, d.current_pkg);
@@ -151,7 +176,6 @@ public class SearchTest extends Thread{
         //FragmentNode start = graphAdjustor.locate(tree)
         List<Action> actions = null;
         if (end == null) return null;
-
         if (start != null) {
             log("start: " + start.getActivity() + "_" + start.getStructure_hash());
             if (start.getStructure_hash() == end.getStructure_hash()) {

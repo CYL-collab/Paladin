@@ -20,6 +20,7 @@ public class FragmentNode {
     List<String> click_list;
     boolean traverse_over;
     boolean traverse;
+    boolean basic_action_completed;
     Integer title;
     Action action;
     List<Action> intrapaths;
@@ -43,6 +44,7 @@ public class FragmentNode {
 
     public FragmentNode(){
         traverse_over = false;
+        basic_action_completed = false;
         intrapaths = new ArrayList<>();
         interpaths = new ArrayList<>();
         allPaths = new ArrayList<>();
@@ -256,6 +258,14 @@ public class FragmentNode {
 
     public void setTraverse_over(boolean traverse_over) {
         this.traverse_over = traverse_over;
+    }
+
+    public boolean isBasic_action_completed() {
+        return basic_action_completed;
+    }
+
+    public void setBasic_action_completed(boolean basic_action_completed) {
+        this.basic_action_completed = basic_action_completed;
     }
 
     public double calc_similarity(FragmentNode node){

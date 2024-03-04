@@ -10,6 +10,7 @@ import com.sei.util.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 
 public class ClientAutomator {
@@ -109,38 +110,8 @@ public class ClientAutomator {
     }
 
     public static int execute_action(Device d, int code, ViewTree tree, String path){
-        int[] pxy = new int[2];
-        if (code == Action.action_list.CLICK){
-            ViewNode vn = parse_path(d, tree, path, pxy);
-            if (vn == null) return Device.UI.SAME;
-
-            //d.log(vn.getResourceID() + "(" + pxy[0] + "," + pxy[1] + ") " );
-            if (pxy[0] > d.screenWidth || pxy[0] < 0)
-                return Device.UI.SAME;
-            for(int i = 0; i < 10; ++i) {
-                if (pxy[1] < 0) {
-                    d.log("scroll up " + pxy[1]);
-                    ClientAdaptor.scrollUp(d);
-                    ViewTree tree1 = getCurrentTree(d);
-                    vn = parse_path(d, tree1, path, pxy);
-                }else if(pxy[1] > d.screenHeight){
-                    d.log("scroll down " + pxy[1]);
-                    ClientAdaptor.scrollDown(d);
-                    ViewTree tree1 = getCurrentTree(d);
-                    vn = parse_path(d, tree1, path, pxy);
-                } else {
-                    if(vn != null && vn.getWebContent()) {
-                        CommonUtil.log("find the node and its viewText is:" + vn.getViewText());
-                        break;
-                    }
-                }
-            }
-
-            if (pxy[1] < 0 || pxy[1] > d.screenHeight)
-                return Device.UI.SAME;
-            else{
-                ClientAdaptor.click(d, pxy[0], pxy[1]);
-            }
+        if (Objects.equals(path, "menu")) {
+            code = Action.action_list.MENU;
         }
 
         switch (code){
@@ -177,6 +148,43 @@ public class ClientAutomator {
             case Action.action_list.DISABLEBT:
                 ClientAdaptor.disableBT(d);
                 break;
+            case Action.action_list.CAMERASHOT:
+                ClientAdaptor.cameraShot(d);
+                break;
+        }
+
+        int[] pxy = new int[2];
+        if (code == Action.action_list.CLICK){
+            ViewNode vn = parse_path(d, tree, path, pxy);
+            if (vn == null) return Device.UI.SAME;
+
+            //d.log(vn.getResourceID() + "(" + pxy[0] + "," + pxy[1] + ") " );
+            if (pxy[0] > d.screenWidth || pxy[0] < 0)
+                return Device.UI.SAME;
+            for(int i = 0; i < 10; ++i) {
+                if (pxy[1] < 0) {
+                    d.log("scroll up " + pxy[1]);
+                    ClientAdaptor.scrollUp(d);
+                    ViewTree tree1 = getCurrentTree(d);
+                    vn = parse_path(d, tree1, path, pxy);
+                }else if(pxy[1] > d.screenHeight){
+                    d.log("scroll down " + pxy[1]);
+                    ClientAdaptor.scrollDown(d);
+                    ViewTree tree1 = getCurrentTree(d);
+                    vn = parse_path(d, tree1, path, pxy);
+                } else {
+                    if(vn != null && vn.getWebContent()) {
+                        CommonUtil.log("find the node and its viewText is:" + vn.getViewText());
+                        break;
+                    }
+                }
+            }
+
+            if (pxy[1] < 0 || pxy[1] > d.screenHeight)
+                return Device.UI.SAME;
+            else{
+                ClientAdaptor.click(d, pxy[0], pxy[1]);
+            }
         }
 
         CommonUtil.sleep(800);

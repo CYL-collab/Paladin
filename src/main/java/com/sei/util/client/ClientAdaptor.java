@@ -109,13 +109,13 @@ public class ClientAdaptor {
             String dumpInfo = commandResult.successMsg;
             String result;
             int start = dumpInfo.lastIndexOf(".");
-            int stop = dumpInfo.indexOf("}");
+            int stop = dumpInfo.lastIndexOf("}");
             if (start == -1 || stop == -1){
                 CommonUtil.sleep(2000);
                 commandResult = ShellUtils2.execCommand(command);
                 dumpInfo = commandResult.successMsg;
                 start = dumpInfo.lastIndexOf(".");
-                stop = dumpInfo.indexOf("}");
+                stop = dumpInfo.lastIndexOf("}");
             }
 
             if (dumpInfo.contains(ConnectUtil.launch_pkg))
@@ -237,6 +237,18 @@ public class ClientAdaptor {
         String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell svc bluetooth disable";
         ShellUtils2.execCommand(command);
     }
+    public static void cameraShot(Device d) {
+        String command_shot = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input tap 540 1760";
+        ShellUtils2.execCommand(command_shot);
+        CommonUtil.sleep(2000);
+        String command_confirm = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input tap 540 1760";
+        ShellUtils2.execCommand(command_confirm);
+        CommonUtil.sleep(2000);
+    }
+//    public static void fillAndClick(Device d) {
+//        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell svc bluetooth disable";
+//        ShellUtils2.execCommand(command);
+//    }
     public static void scrollUp(Device d){
         CommonUtil.log("scroll up");
         String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input swipe 300 300 500 1300 300";

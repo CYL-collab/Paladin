@@ -378,24 +378,58 @@ public class GraphAdjustor extends UiTransition{
     public Action getAction(ViewTree currentTree){
         FragmentNode currentNode = locate(currentTree);
         //log("current node: " + currentNode.getSignature());
-        Action action = null;
-        if (currentNode.path_index.size() < currentNode.path_list.size()) {
-            int ser = CommonUtil.shuffle(currentNode.path_index, currentNode.path_list.size());
+        List<String> nonEditPaths = new ArrayList<>();
+        List<String> editPaths = new ArrayList<>();
 
-            currentNode.path_index.add(ser);
-            log(currentNode.getSignature() +  " path: " + currentNode.path_index.size() + "/" + currentNode.path_list.size());
-
-            String path = currentNode.path_list.get(ser);
-            //log("next path to act:" + path);
+        // 分类路径
+        for (String path : currentNode.path_list) {
             if (currentNode.edit_fields.contains(path)) {
-                action = new Action(path, Action.action_list.ENTERTEXT);
-            }else if (path.equals("menu")){
-                action = new Action(path, Action.action_list.MENU);
-            }else
-                action = new Action(path, Action.action_list.CLICK);
-        }else
+                editPaths.add(path);
+            } else {
+                nonEditPaths.add(path);
+            }
+        }
+
+        Collections.shuffle(nonEditPaths);
+        Collections.shuffle(editPaths);
+
+        if (!currentNode.isBasic_action_completed()) {
+            // 尝试执行非编辑字段的操作
+            for (String path : nonEditPaths) {
+                if (!currentNode.path_index.contains(currentNode.path_list.indexOf(path))) {
+                    currentNode.path_index.add(currentNode.path_list.indexOf(path));
+                    // 这里可以定义执行非编辑字段时的默认操作，例如点击
+                    return new Action(path, Action.action_list.CLICK);
+                }
+            }
+
+            // 所有非编辑字段都尝试过后，尝试编辑字段的操作
+            for (String path : editPaths) {
+                if (!currentNode.path_index.contains(currentNode.path_list.indexOf(path))) {
+                    currentNode.path_index.add(currentNode.path_list.indexOf(path));
+                    // 对于编辑字段执行文本输入操作
+                    return new Action(path, Action.action_list.ENTERTEXT);
+                }
+            }
+            currentNode.setBasic_action_completed(true);
+        }
+
+        // 所有路径都尝试过后，尝试使用FILLANDCLICK策略
+        if (currentNode.isBasic_action_completed() && !currentNode.isTraverse_over()) {
+            if (!editPaths.isEmpty()) {
+                for (String path : nonEditPaths) {
+                    // 确保不重复执行 FILLANDCLICK
+                    if (!currentNode.path_index.contains(currentNode.path_list.indexOf(path) + currentNode.path_list.size())) {
+                        // 通过添加偏移量区分 FILLANDCLICK 操作
+                        currentNode.path_index.add(currentNode.path_list.indexOf(path) + currentNode.path_list.size());
+                        return new Action(path, Action.action_list.FILLANDCLICK);
+                    }
+                }
+            }
+            // 所有非编辑字段都尝试过 FILLANDCLICK 后，标记遍历完成
             currentNode.setTraverse_over(true);
-        return action;
+        }
+        return null;
     }
 
     public Action getTextAction(ViewTree currentTree){
