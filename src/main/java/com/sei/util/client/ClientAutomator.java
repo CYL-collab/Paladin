@@ -191,6 +191,9 @@ public class ClientAutomator {
         String f = ClientAdaptor.getForeground(d);
         if (!f.contains(ConnectUtil.launch_pkg)) {
             //d.log("out to: " + f);
+            if (ClientAdaptor.getTopActivityName(d).equals("CaptureActivity")) {
+                return Device.UI.CAM;
+            }
             return Device.UI.OUT;
         }
 
@@ -204,8 +207,8 @@ public class ClientAutomator {
             newTree = getCurrentTree(d);
         }
         if (newTree.root == null) return Device.UI.OUT;
-
-        if (!newTree.getActivityName().equals(d.currentTree.getActivityName()) || newTree.getTreeStructureHash() != d.currentTree.getTreeStructureHash()){
+        newTree.trimShorterSubtree();
+        if (!newTree.getActivityName().equals(d.currentTree.getActivityName()) || newTree.calc_similarity(d.currentTree) < 1.0){
             return Device.UI.NEW;
         }else{
             return Device.UI.SAME;

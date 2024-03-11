@@ -266,6 +266,7 @@ public class Device extends Thread{
             if (action.getAction() == Action.action_list.ENTERTEXT) {
                 response = ClientAdaptor.execute_action(this, Action.action_list.CLICK, currentTree, action.getPath());
                 if (response == UI.SAME) {
+                    ClientAdaptor.clearText(this);
                     response = ClientAdaptor.execute_action(this, Action.action_list.ENTERTEXT, currentTree, "test");
                 }else {
                     action.setAction(Action.action_list.CLICK);
@@ -275,11 +276,14 @@ public class Device extends Thread{
                 for (String path : pathsToEdit) {
                     response = ClientAdaptor.execute_action(this, Action.action_list.CLICK, currentTree, path);
                     if (response == UI.SAME) {
+                        ClientAdaptor.clearText(this);
                         response = ClientAdaptor.execute_action(this, Action.action_list.ENTERTEXT, currentTree, "test");
                     }else {
-                        action.setAction(Action.action_list.CLICK);
-                        action.setPath(path);
-                        break;
+                        if (!try_back_to_prev()) {
+                            action.setAction(Action.action_list.CLICK);
+                            action.setPath(path);
+                            break;
+                        }
                     }
                 }
                 if (response == UI.SAME) {
@@ -289,7 +293,7 @@ public class Device extends Thread{
                 response = ClientAdaptor.execute_action(this, action.getAction(), currentTree, action.getPath());
             }
 
-            if (response == UI.OUT && mode != MODE.REPLAY && Objects.equals(currentTree.getActivityName(), "com.android.camera2_CaptureActivity")) {
+            if (response == UI.OUT && mode != MODE.REPLAY && Objects.equals(currentTree.getActivityName(), "CaptureActivity")) {
                 response = UI.CAM;
             }
 
@@ -310,13 +314,16 @@ public class Device extends Thread{
         }else if (decision.code == Decision.CODE.RESTART || decision.code == Decision.CODE.GO){
             if (decision.code == Decision.CODE.RESTART) {
                 if(try_back()) return UI.NEW;
-
+                if(try_back_twice()) return UI.NEW;
                 log("need restart stack size: " + fragmentStack.getSize());
                 enter();
             }
             response = recover_stack(decision);
             if (response == UI.NEW || response == UI.PIDCHANGE){
                 if (update_stack(null) == UI.OUT) response = UI.OUT;
+            }
+            if (response == UI.OUT && mode != MODE.REPLAY && Objects.equals(currentTree.getActivityName(), "CaptureActivity")) {
+                response = UI.CAM;
             }
             // modified by ycx on 2019/5/10
             // newTree = currentTree;
@@ -335,37 +342,52 @@ public class Device extends Thread{
         return response;
     }
 
-    private List<String> getPathsToEdit() {
-        List<String> paths = currentTree.getClickable_list();
-        Map<String, Integer> pathCount = new HashMap<>();
-        for (String path : paths) {
-            if (path.endsWith("TextView")) {
-                pathCount.put(path, pathCount.getOrDefault(path, 0) + 1);
-            }
-        }
-
+    public List<String> getPathsToEdit() {
+        List<String> paths = graphAdjustor.searchFragment(currentTree).path_list;
         List<String> pathsToEdit = new ArrayList<>();
-        Map<String, Integer> currentIndex = new HashMap<>();
         for (String path : paths) {
-            if (path.endsWith("TextView")) {
-                int count = pathCount.get(path);
-                int index = currentIndex.getOrDefault(path, 0);
-                if (count > 1) {
-                    // 如果有多个重复的path，依次加上#0, #1, ...
-                    pathsToEdit.add(path + "#" + index);
-                    currentIndex.put(path, index + 1);
-                } else {
-                    // 如果只有一个path，加上#0
-                    pathsToEdit.add(path + "#0");
-                }
+            if (path.contains("EditText")) {
+                pathsToEdit.add(path);
             }
         }
         return pathsToEdit;
     }
 
+    public Boolean try_back_to_prev() throws Exception{
+        log("try back to prev");
+        ClientAdaptor.goBack(this);
+        int dest_tree_hash = getCurrentTree().getTreeStructureHash();
+        if (dest_tree_hash != currentTree.treeStructureHash){
+            return false;
+        }
+        newTree = getCurrentTree();
+        if (newTree == null || newTree.root == null
+                ||fragmentStack.getPosition(newTree) == -1){
+            return false;
+        }else{
+            return true;
+        }
+    }
+
     public Boolean try_back() throws Exception{
         log("try back");
         ClientAdaptor.goBack(this);
+        String f = ClientAdaptor.getForeground(this);
+        if (!f.contains(ConnectUtil.launch_pkg)){
+            return false;
+        }
+        newTree = getCurrentTree();
+        if (newTree == null || newTree.root == null
+                ||fragmentStack.getPosition(newTree) == -1){
+            return false;
+        }else{
+            return true;
+        }
+    }
+
+    public Boolean try_back_twice() throws Exception{
+        log("try back twice");
+        ClientAdaptor.goBackTwice(  this);
         String f = ClientAdaptor.getForeground(this);
         if (!f.contains(ConnectUtil.launch_pkg)){
             return false;

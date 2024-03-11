@@ -1,6 +1,5 @@
 package com.sei.bean.View;
 
-import com.alibaba.fastjson.JSON;
 import com.sei.agent.Device;
 import com.sei.util.*;
 import com.sei.util.client.ClientAdaptor;
@@ -12,11 +11,7 @@ import org.jsoup.nodes.Element;
 import org.jsoup.parser.Parser;
 import org.jsoup.select.Elements;
 
-import javax.xml.xpath.XPath;
-import java.io.File;
-import java.io.FileWriter;
 import java.io.Serializable;
-import java.sql.ClientInfoStatus;
 import java.util.*;
 import com.sei.util.CmdUtil;
 
@@ -413,7 +408,33 @@ public class ViewTree implements Serializable {
         }
     }
 
+//    public double calc_similarity(ViewTree tree2){
+//        float match = 0f;
+//        List<String> click_list = this.getClickable_list();
+//        List<String> click_list2 = tree2.getClickable_list();
+//        for (String s : click_list){
+//            if (click_list2.contains(s)) {
+//                match += 1;
+//            }
+//        }
+//        int tot = (click_list.size() + click_list2.size());
+//        return 2 * match / tot;
+//    }
+    public double calc_similarity(ViewTree tree2) {
+        List<String> clickableList1 = this.clickable_list;
+        List<String> clickableList2 = tree2.getClickable_list();
 
+        Set<String> set1 = new HashSet<>(clickableList1);
+        Set<String> set2 = new HashSet<>(clickableList2);
+
+        Set<String> intersection = new HashSet<>(set1);
+        intersection.retainAll(set2);
+
+        Set<String> union = new HashSet<>(set1);
+        union.addAll(set2);
+
+        return (double) intersection.size() / union.size();
+    }
     /*
      * 将DOM树压平放入view tree中，调用新接口。
      */
@@ -479,5 +500,38 @@ public class ViewTree implements Serializable {
 
     public void setDeeplink(String deeplink) {
         Deeplink = deeplink;
+    }
+    private void updateHash() {
+        String relateHashString = root.calStringWithoutPosition();
+        for (ViewNode child : root.getChildren()) {
+            relateHashString += child.calStringWithoutPosition();
+        }
+        root.setNodeRelateHash(relateHashString.hashCode());
+        this.setTreeStructureHash(root.getNodeRelateHash());
+    }
+
+    public void trimShorterSubtree() {
+        if (this.root != null && this.root.getChildren().size() == 2) {
+            ViewNode child1 = this.root.getChildren().get(0);
+            ViewNode child2 = this.root.getChildren().get(1);
+
+            // 使用ViewNode的subtreeNodeCount方法来计算每个子树的节点总数
+            int count1 = child1.subtreeNodeCount();
+            int count2 = child2.subtreeNodeCount();
+
+            // 判断两个子树的节点数差异，设定一个阈值来确定“显著短于”
+            if (Math.abs(count1 - count2) > Math.min(count1, count2) / 2) {
+                if (count1 < count2) {
+                    // 移除较短的子树child1
+                    this.root.removeChild(child1);
+                } else {
+                    // 移除较短的子树child2
+                    this.root.removeChild(child2);
+                }
+            }
+        }
+        // updateHash();
+        setClickable_list(null);
+        getClickable_list();
     }
 }

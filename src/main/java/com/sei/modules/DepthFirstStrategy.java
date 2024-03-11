@@ -1,6 +1,7 @@
 package com.sei.modules;
 
 import com.sei.agent.Device;
+import com.sei.bean.Collection.Graph.FragmentNode;
 import com.sei.bean.Collection.Graph.GraphAdjustor;
 import com.sei.bean.Collection.Tuple2;
 import com.sei.bean.View.Action;
@@ -49,7 +50,16 @@ public class DepthFirstStrategy implements Strategy{
         if (p != top)
             return new Decision(Decision.CODE.GO, device.fragmentStack.top().getSignature());
 
-        new_action = select_action(device, newTree);
+        if (response == Device.UI.CAM) {
+            new_action = new Action("test", Action.action_list.CAMERASHOT);
+            FragmentNode frg = graphAdjustor.searchFragment(newTree);
+            if (frg != null) {
+                frg.setTraverse_over(true);
+            }
+        } else {
+            new_action = select_action(device, newTree);
+        }
+
         if (new_action != null)
             return new Decision(Decision.CODE.CONTINUE, new_action);
 

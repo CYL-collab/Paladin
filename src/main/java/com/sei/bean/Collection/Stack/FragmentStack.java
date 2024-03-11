@@ -122,8 +122,18 @@ public class FragmentStack {
                 ClientAdaptor.execute_action(d, action.getAction(), tree, "");
             else if(action.getAction() == Action.action_list.ENTERTEXT) {
                 ClientAdaptor.execute_action(d, Action.action_list.CLICK, tree, action.getPath());
+                ClientAdaptor.clearText(d);
                 ClientAdaptor.execute_action(d, Action.action_list.ENTERTEXT, tree, action.getContent());
-            }else
+            } else if(action.getAction() == Action.action_list.FILLANDCLICK) {
+                List<String> pathsToEdit = d.getPathsToEdit();
+                for (String path : pathsToEdit) {
+                    ClientAdaptor.execute_action(d, Action.action_list.CLICK, tree, path);
+                    ClientAdaptor.clearText(d);
+                    ClientAdaptor.execute_action(d, Action.action_list.ENTERTEXT, tree, "test");
+                    }
+                    ClientAdaptor.execute_action(d, Action.action_list.CLICK, d.getCurrentTree(), action.getPath());
+            }
+            else
                 ClientAdaptor.execute_action(d, action.getAction(), tree, action.getPath());
 
 
@@ -152,7 +162,7 @@ public class FragmentStack {
                 d.newTree = newTree;
                 return Device.UI.SAME;
             }else if (position != -1 && position != i+1){
-                if (limits >= 3){
+                if (limits >= 2){
                     int c = start+1;
                     d.log("continuously back to position " + position + " cut above " + c + "/" + stack.size());
                     for(int j=stack.size()-1; j >= c; j--)

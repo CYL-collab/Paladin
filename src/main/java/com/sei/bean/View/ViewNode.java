@@ -117,7 +117,9 @@ public class ViewNode implements Serializable, Comparable{
         this.children = children;
     }
     public void addChild(ViewNode child) { this.children.add(child); }
-
+    public void removeChild(ViewNode child) {
+        this.children.remove(child);
+    }
     public ViewNode getParent() {
         return parent;
     }
@@ -236,6 +238,16 @@ public class ViewNode implements Serializable, Comparable{
             this.xpath = ViewUtil.generate_xpath(this);
         }
         return this.xpath;
+    }
+
+    public int subtreeNodeCount() {
+        int count = 1; // 初始化为1，包括当前节点自身
+        if (this.children != null) {
+            for (ViewNode child : this.children) {
+                count += child.subtreeNodeCount(); // 递归计算每个子节点的子树节点数并累加
+            }
+        }
+        return count;
     }
 
     public void setXpath(String xpath) {

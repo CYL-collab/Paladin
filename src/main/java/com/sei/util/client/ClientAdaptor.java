@@ -164,6 +164,13 @@ public class ClientAdaptor {
         CommonUtil.sleep(1000);
     }
 
+    public static void goBackTwice(Device d){
+        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input keyevent 4";
+        ShellUtils2.execCommand(command);
+        CommonUtil.sleep(200);
+        ShellUtils2.execCommand(command);
+    }
+
     public static Boolean login(Device d, ViewTree tree){
         Boolean SUCCESS = false;
         List<ViewNode> nodes = tree.fetch_clickable_nodes();
@@ -240,10 +247,7 @@ public class ClientAdaptor {
     public static void cameraShot(Device d) {
         String command_shot = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input tap 540 1760";
         ShellUtils2.execCommand(command_shot);
-        CommonUtil.sleep(2000);
-        String command_confirm = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input tap 540 1760";
-        ShellUtils2.execCommand(command_confirm);
-        CommonUtil.sleep(2000);
+        CommonUtil.sleep(5000);
     }
 //    public static void fillAndClick(Device d) {
 //        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell svc bluetooth disable";
@@ -269,6 +273,15 @@ public class ClientAdaptor {
     public static void clickMenu(Device d){
         String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input keyevent 82";
         ShellUtils2.execCommand(command);
+    }
+
+    public static void clearText(Device d){
+        // String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell 'input keycombination 113 29 && input keyevent 67'";
+        String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input keycombination 113 29";
+        ShellUtils2.execCommand(command);
+        command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell input keyevent 67";
+        ShellUtils2.execCommand(command);
+        CommonUtil.sleep(1000);
     }
 
     public static void enterText(Device d, String text){
