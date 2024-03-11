@@ -599,23 +599,23 @@ public class Device extends Thread{
             if (fragmentStack != null){
                 p = fragmentStack.getPosition(currentTree);
                 // 尽量匹配上栈的第一个节点
-                if (p == -1) {
-                    Action action = fragmentStack.get(0).getAction();
-                    if (action == null || action.path == null){
-                        t+= 1;
-                        continue;
-                    }
-
-                    int idx = action.path.indexOf("#");
-                    String xpath = "";
-                    if (idx == -1) {
-                        xpath = action.path;
-                    } else {
-                        xpath = action.path.substring(0, idx);
-                    }
-                    if (currentTree.getClickable_list().contains(xpath))
-                        p = 0;
-                }
+//                if (p == -1) {
+//                    Action action = fragmentStack.get(0).getAction();
+//                    if (action == null || action.path == null){
+//                        t+= 1;
+//                        continue;
+//                    }
+//
+//                    int idx = action.path.indexOf("#");
+//                    String xpath = "";
+//                    if (idx == -1) {
+//                        xpath = action.path;
+//                    } else {
+//                        xpath = action.path.substring(0, idx);
+//                    }
+//                    if (currentTree.getClickable_list().contains(xpath))
+//                        p = 0;
+//                }
             }
 
             log("refresh");
