@@ -421,8 +421,12 @@ public class ViewTree implements Serializable {
 //        return 2 * match / tot;
 //    }
     public double calc_similarity(ViewTree tree2) {
-        List<String> clickableList1 = this.clickable_list;
-        List<String> clickableList2 = tree2.getClickable_list();
+        List<String> clickableList1 = new ArrayList<>(this.clickable_list);
+        List<String> clickableList2 = new ArrayList<>(tree2.getClickable_list());
+
+        // 移除以"LinearLayout"结尾的项
+        clickableList1.removeIf(path -> path.endsWith("LinearLayout"));
+        clickableList2.removeIf(path -> path.endsWith("LinearLayout"));
 
         Set<String> set1 = new HashSet<>(clickableList1);
         Set<String> set2 = new HashSet<>(clickableList2);

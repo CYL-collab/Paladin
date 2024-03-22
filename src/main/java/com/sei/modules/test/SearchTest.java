@@ -68,15 +68,18 @@ public class SearchTest extends Thread{
         FragmentNode cycleStartNode = cycle.get(0);
         List<Action> pathToCycle = buildPath(sourceNode, cycleStartNode);
         List<Action> actions;
+        List<FragmentNode> fragmentsToCycle;
         if (cycle.size() < 3) return null;
         if (pathToCycle == null ) {
             if (sourceNode != cycleStartNode) {
                 return null;
             }else {
                 pathToCycle = new ArrayList<>();
+                fragmentsToCycle = new ArrayList<>();
             }
+        } else {
+            fragmentsToCycle = genFragmentsToCycle(pathToCycle);
         }
-        List<FragmentNode> fragmentsToCycle = genFragmentsByActions(pathToCycle);
         FragmentNode lastNode = cycleStartNode;
         List<Action> pathInCycle = new ArrayList<>();
         for (FragmentNode nextNode : cycle) {
@@ -144,18 +147,19 @@ public class SearchTest extends Thread{
         }
         return fragments;
     }
-    private void runByActions(List<Action> actions) throws InterruptedException {
-        ClientAdaptor.stopApp(d, d.current_pkg);
-        d.actions = actions;
-        d.start();
-        while(true){
-            if (d.Exit){
-                d = new Device(d.ip, d.port, d.serial, d.current_pkg, d.password, d.mode);
-                scheduler.bind(d);
+    private List<FragmentNode> genFragmentsToCycle(List<Action> actions) {
+        if (actions.isEmpty()) return null;
+        List<FragmentNode> fragments = new ArrayList<>();
+        fragments.add(sourceNode);
+        int count = 1;
+        for (Action action: actions) {
+            if (count == actions.size())
                 break;
-            }
-            CommonUtil.sleep(2000);
+            FragmentNode nextfn = graphAdjustor.appGraph.getFragment(action.target);
+            fragments.add(nextfn);
+            count++;
         }
+        return fragments;
     }
     private void runDeviceByRoutes(List<String> routes) {
         d.setRoute_list(routes);
@@ -177,15 +181,14 @@ public class SearchTest extends Thread{
         List<Action> actions = null;
         if (end == null) return null;
         if (start != null) {
-            log("start: " + start.getActivity() + "_" + start.getStructure_hash());
+            // log("start: " + start.getActivity() + "_" + start.getStructure_hash());
             if (start.getStructure_hash() == end.getStructure_hash()) {
                 return null;
             }
             actions = graphAdjustor.BFS(start, end);
             graphAdjustor.resetColor();
             if (actions != null) {
-                log("search path success!");
-                d.visits.add(start.getSignature());
+                Collections.reverse(actions);
                 return actions;
             }else{
                 log("search fail");

@@ -242,12 +242,21 @@ public class GraphAdjustor extends UiTransition{
     @Override
     public void save(){
         try {
+            String directoryPath = "output/" + ConnectUtil.launch_pkg;
             String n = "graph-" + ConnectUtil.launch_pkg + ".json";
+            File directory = new File(directoryPath);
+            if (!directory.exists()) {
+                directory.mkdirs(); // 创建目录
+            }
             File file = new File(n);
+            File file2 = new File(directoryPath, n);
             FileWriter writer = new FileWriter(file);
+            FileWriter writer2 = new FileWriter(file);
             String content = SerializeUtil.toBase64(appGraph);
             writer.write(content);
             writer.close();
+            writer2.write(content);
+            writer2.close();
 
             if (reGraph != null){
                 file = new File("re_graph.json");
@@ -625,7 +634,26 @@ public class GraphAdjustor extends UiTransition{
         }
         return null;
     }
-
+    public List<Action> buildPath(FragmentNode start, FragmentNode end){
+        //FragmentNode start = graphAdjustor.locate(tree)
+        List<Action> actions = null;
+        if (end == null) return null;
+        if (start != null) {
+            // log("start: " + start.getActivity() + "_" + start.getStructure_hash());
+            if (start.getStructure_hash() == end.getStructure_hash()) {
+                return null;
+            }
+            actions = BFS(start, end);
+            resetColor();
+            if (actions != null) {
+                Collections.reverse(actions);
+                return actions;
+            }else{
+                log("search fail");
+            }
+        }
+        return null;
+    }
     private List<Action> buildPath(FragmentNode end){
         List<Action> path = new ArrayList<>();
         FragmentNode tmp;

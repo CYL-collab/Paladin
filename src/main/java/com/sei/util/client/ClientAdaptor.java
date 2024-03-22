@@ -150,7 +150,7 @@ public class ClientAdaptor {
     public static void stopApp(Device d, String pkg){
         String command = CommonUtil.ADB_PATH + "adb -s " + d.serial + " shell am force-stop " + pkg;
         ShellUtils2.execCommand(command);
-        CommonUtil.sleep(5000);
+        CommonUtil.sleep(4000);
     }
 
     public static Boolean checkPermission(Device d) throws Exception{

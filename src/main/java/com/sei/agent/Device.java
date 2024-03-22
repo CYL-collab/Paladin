@@ -46,7 +46,9 @@ public class Device extends Thread{
     Boolean LOGIN_SUCCESS;
 
     public String targetActivity;
-    public List<Action> actions;
+    public List<Action> searchActions;
+    public List<FragmentNode> searchFragments;
+    public Boolean searchRunnable;
 
     public interface UI{
         int NEW = 0;
@@ -115,21 +117,6 @@ public class Device extends Thread{
             initiate();
             Decision decision = null;
 
-            if (mode == MODE.SEARCH) {
-                // collectMetric();
-                for (Action action : this.actions) {
-                    decision = new Decision(Decision.CODE.CONTINUE, action);
-                    response = execute_decision(decision);
-                    CommonUtil.sleep(1000);
-                }
-                // collectMetric();
-//                decision = new Decision(Decision.CODE.SEQ, actions);
-//                response = execute_decision(decision);
-//                CommonUtil.sleep(1000);
-                Exit = true;
-                return;
-            }
-
             if (mode != MODE.REPLAY) {
                 if (fragmentStack == null) {
                     fragmentStack = new FragmentStack();
@@ -143,6 +130,45 @@ public class Device extends Thread{
                     }
                 }
             }
+
+            if (mode == MODE.SEARCH) {
+                searchRunnable = true;
+                if (searchActions.size() != searchFragments.size())
+                    throw new RuntimeException("Individual size not aligned!");
+                for (int i = 0 ; i < searchActions.size() ; i++) {
+                    Action action = searchActions.get(i);
+                    FragmentNode fn = searchFragments.get(i);
+                    String currentPage;
+                    if (newTree == null) {
+                        currentPage = currentTree.getActivityName()+'_'+currentTree.getTreeStructureHash();
+                    } else
+                        currentPage = newTree.getActivityName()+'_'+newTree.getTreeStructureHash();
+                    FragmentNode currentFn = graphAdjustor.appGraph.getFragment(currentPage);
+                    int recover_response = UI.SAME;
+                    if (!currentFn.equals(fn)) {
+                        CommonUtil.log("Search: Unexpected Replay Variation, Recovering...");
+                        List<Action> actionsToRecover = graphAdjustor.buildPath(currentFn, fn);
+                        if (actionsToRecover == null) {
+                            //向search返回不可运行标记
+                            searchRunnable = false;
+                            throw new Exception("Individual not runnable");
+                        }
+                        recover_response = execute_actions(new Decision(Decision.CODE.CONTINUE, actionsToRecover));
+                        if (recover_response != UI.NEW) {
+                            //向search返回不可运行
+                            searchRunnable = false;
+                            throw new Exception("Individual not runnable");
+                        }
+                    }
+                    decision = new Decision(Decision.CODE.CONTINUE, action);
+                    response = execute_decision(decision);
+                    // String newPage = newTree.getActivityName()+'_'+newTree.getTreeStructureHash();
+                    CommonUtil.sleep(1000);
+                }
+                Exit = true;
+                return;
+            }
+
             if (decision == null) {
                 Action action = null;
                 decision = new Decision(Decision.CODE.CONTINUE, action);
@@ -293,10 +319,6 @@ public class Device extends Thread{
                 response = ClientAdaptor.execute_action(this, action.getAction(), currentTree, action.getPath());
             }
 
-            if (response == UI.OUT && mode != MODE.REPLAY && Objects.equals(currentTree.getActivityName(), "CaptureActivity")) {
-                response = UI.CAM;
-            }
-
             if (response != UI.SAME && response != UI.OUT) {
                 if (mode != MODE.REPLAY && update_stack(action) == UI.OUT){
                     response = UI.OUT;
@@ -306,6 +328,11 @@ public class Device extends Thread{
             }else{
                 newTree = currentTree;
             }
+
+            if (response == UI.OUT && mode != MODE.REPLAY && Objects.equals(newTree.getActivityName(), "CaptureActivity")) {
+                response = UI.CAM;
+            }
+
         }else if (decision.code == Decision.CODE.SEQ){
             return execute_actions(decision);
         }else if (decision.code == Decision.CODE.STOP) {
@@ -361,12 +388,10 @@ public class Device extends Thread{
             return false;
         }
         newTree = getCurrentTree();
-        if (newTree == null || newTree.root == null
-                ||fragmentStack.getPosition(newTree) == -1){
+        if (fragmentStack == null)
             return false;
-        }else{
-            return true;
-        }
+        return newTree != null && newTree.root != null
+                && fragmentStack.getPosition(newTree) != -1;
     }
 
     public Boolean try_back() throws Exception{

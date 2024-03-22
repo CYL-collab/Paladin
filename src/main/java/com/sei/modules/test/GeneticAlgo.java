@@ -16,12 +16,12 @@ import java.util.regex.Pattern;
 
 import static com.sei.util.CommonUtil.random;
 
-public class GeneticAlgo {
+public class GeneticAlgo{
     private static final int POPULATION_SIZE = 50;
     private static final int MAX_GENERATIONS = 50;
     private static final double MUTATION_RATE = 0.1;
     private static final double CROSSOVER_RATE = 0.8;
-    private int repeatRunTimes = 50;
+    private int repeatRunTimes = 20;
     private List<GeneticAlgo.Individual> population;
     private Device d;
     private final Scheduler scheduler;
@@ -60,6 +60,10 @@ public class GeneticAlgo {
     }
 
     private static List<GeneticAlgo.Individual> extendListToSize(List<Individual> list) {
+        if (list.isEmpty()) {
+            throw new RuntimeException("Initial Population Empty!");
+        }
+
         Random random = new Random();
         List<GeneticAlgo.Individual> result = new ArrayList<>(list);
 
@@ -72,13 +76,17 @@ public class GeneticAlgo {
         return result;
     }
 
-    private void runByActions(List<Action> actions) throws InterruptedException {
-        ClientAdaptor.stopApp(d, d.current_pkg);
-        d.actions = actions;
+    private void runIndividual(Individual individual, List<Action> actions, List<FragmentNode> fragments) throws InterruptedException {
+        d.searchActions = actions;
+        d.searchFragments = fragments;
         d.start();
+        // d.start();
         while(true){
             if (d.Exit){
+                if (!d.searchRunnable)
+                    individual.canExecute = false;
                 d = new Device(d.ip, d.port, d.serial, d.current_pkg, d.password, d.mode);
+                d.bind(scheduler, graphAdjustor);
                 scheduler.bind(d);
                 break;
             }
@@ -103,17 +111,21 @@ public class GeneticAlgo {
     }
 
     private Double evaluateFitness(GeneticAlgo.Individual individual) {
-        List<Action> actions = individual.getActionsToCycle();
+        List<Action> actions = new ArrayList<>(individual.getActionsToCycle());
+        List<FragmentNode> fragments = new ArrayList<>(individual.getFragmentsToCycle());
         for (int i = 0; i < repeatRunTimes ; i ++) {
             actions.addAll(individual.getActionsInCycle());
+            fragments.addAll(individual.getFragmentsInCycle());
         }
         Double rssGrowth = null;
         Double pssGrowth = null;
         try{
+            ClientAdaptor.stopApp(d, d.current_pkg);
+            ClientAdaptor.startApp(d, d.current_pkg);
             List<Double> metricBefore = collectMetric();
             Double pssBefore = metricBefore.get(0);
             Double rssBefore = metricBefore.get(1);
-            runByActions(actions);
+            runIndividual(individual, actions, fragments);
             List<Double> metricAfter = collectMetric();
             Double pssAfter = metricAfter.get(0);
             Double rssAfter = metricAfter.get(1);
@@ -444,7 +456,7 @@ public class GeneticAlgo {
         public List<FragmentNode> fragmentsInCycle;
         private Double fitness;
         private List<Double> fitnesses;
-        public Boolean canExecute;
+        public Boolean canExecute = true;
 
         public Individual(List<Action> actionsToCycle, List<Action> actionsInCycle, Set<FragmentNode> fragmentSet) {
             this.actionsToCycle = actionsToCycle;
