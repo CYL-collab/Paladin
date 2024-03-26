@@ -7,9 +7,14 @@ import com.sei.bean.View.Action;
 import com.sei.bean.View.ViewTree;
 import com.sei.server.component.Scheduler;
 import com.sei.util.CommonUtil;
+import com.sei.util.SerializeUtil;
 import com.sei.util.ShellUtils2;
 import com.sei.util.client.ClientAdaptor;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.Serializable;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -17,11 +22,12 @@ import java.util.regex.Pattern;
 import static com.sei.util.CommonUtil.random;
 
 public class GeneticAlgo{
-    private static final int POPULATION_SIZE = 50;
-    private static final int MAX_GENERATIONS = 50;
-    private static final double MUTATION_RATE = 0.1;
-    private static final double CROSSOVER_RATE = 0.8;
-    private int repeatRunTimes = 20;
+    private static final int POPULATION_SIZE = 20;
+    private static final int MAX_GENERATIONS = 20;
+    private static final double MUTATION_RATE = 0.2;
+    private static final double CROSSOVER_RATE = 0.9;
+    private int repeatRunTimes = 5;
+    private int savingInterval = 5;
     private List<GeneticAlgo.Individual> population;
     private Device d;
     private final Scheduler scheduler;
@@ -37,13 +43,29 @@ public class GeneticAlgo{
     }
 
     public GeneticAlgo.Individual run() {
+        long startTime = System.currentTimeMillis();
         for (int generation = 0; generation < MAX_GENERATIONS; generation++) {
             evaluatePopulation();
-            List<GeneticAlgo.Individual> newPopulation = selectAndReproduce();
-            newPopulation = mutate(newPopulation);
-            population = newPopulation;
+            if (generation % savingInterval == 0 || generation == MAX_GENERATIONS - 1) {
+                long timePassed = (System.currentTimeMillis() - startTime) / 1000;
+                savePopulation(generation, timePassed);
+            }
+            population = selectAndReproduce();
+            mutate(population);
         }
         return findBestIndividual();
+    }
+    private void savePopulation(int generation, long timePassed) {
+        try {
+            String filename = "population_gen_" + generation + "_" + timePassed + ".json";
+            File file = new File(filename);
+            FileWriter writer = new FileWriter(file);
+            String content = SerializeUtil.toBase64(this.population);
+            writer.write(content);
+            writer.close();
+        } catch (IOException e) {
+            System.err.println("Error saving population data: " + e.getMessage());
+        }
     }
     public void addToInitialPopulationCandidate(GeneticAlgo.Individual individual) {
         initialPopulationCandidate.add(individual);
@@ -95,17 +117,28 @@ public class GeneticAlgo{
     }
     private void evaluatePopulation() {
         for (GeneticAlgo.Individual individual : population) {
-            if (individual.fitness > 0) {
-                individual.canExecute = true;
+            if (individual.fitness > 0 && individual.canExecute)
                 continue;
+            if (!individual.canExecute) {
+                individual.fitness = -1.0;
+                population.remove(individual);
+                initialPopulationCandidate.remove(individual);
+                if (!initialPopulationCandidate.isEmpty()) {
+                    int addIndex = random.nextInt(initialPopulationCandidate.size());
+                    population.add(initialPopulationCandidate.get(addIndex));
+                }
             }
             Double fitness = evaluateFitness(individual);
             if (fitness == null) {
                 individual.canExecute = false;
-                individual.setFitness(0);
+                individual.setFitness(-1.0);
             } else {
                 individual.canExecute = true;
                 individual.setFitness(fitness);
+//                for (Individual candidate : initialPopulationCandidate) {
+//                    if (individual.equals(candidate))
+//                        candidate.setFitness(fitness);
+//                }
             }
         }
     }
@@ -134,7 +167,7 @@ public class GeneticAlgo{
         } catch (Exception e){
             return null;
         }
-        return Math.max(pssGrowth + rssGrowth, 0) + 10 / individual.getActionsInCycle().size();
+        return Math.max(pssGrowth + rssGrowth, 0) + 100000 / (individual.getActionsInCycle().size()+individual.getActionsToCycle().size());
     }
 
     private List<Double> collectMetric() {
@@ -161,13 +194,15 @@ public class GeneticAlgo{
     private List<GeneticAlgo.Individual> selectAndReproduce() {
         double totalFitness = population.stream().mapToDouble(GeneticAlgo.Individual::getFitness).sum();
         List<GeneticAlgo.Individual> newPopulation = new ArrayList<>();
+        List<GeneticAlgo.Individual> chosenAncestors = new ArrayList<>();
         Random random = new Random();
 
         // 进行POPULATION_SIZE / 2次选择，因为每次选择都会产生两个后代
         for (int i = 0; i < POPULATION_SIZE / 2; i++) {
             GeneticAlgo.Individual parent1 = selectIndividualByRouletteWheel(totalFitness);
             GeneticAlgo.Individual parent2 = selectIndividualByRouletteWheel(totalFitness);
-
+            chosenAncestors.add(parent1);
+            chosenAncestors.add(parent2);
             // 确保两个父代不相同
             while (parent1 == parent2) {
                 parent2 = selectIndividualByRouletteWheel(totalFitness);
@@ -179,19 +214,33 @@ public class GeneticAlgo{
                 GeneticAlgo.Individual child2 = null;
                 int mutationType = random.nextInt(3); // 0, 1, 或 2，分别代表删除、增加、系统事件
                 List<Individual> children = null;
-                switch (mutationType) {
-                    case 0:
-                        children = crossoverToCycle(parent1, parent2);
-                        break;
-                    case 1:
-                        children = crossoverInCycle(parent1, parent2);
-                        break;
-                    case 2:
-                        children = crossoverAcrossCycle(parent1, parent2);
-                        break;
+                boolean isChildrenSameAsParents = true;
+                int attempt = 0;
+                while (isChildrenSameAsParents && attempt < 3) {
+                    switch (mutationType) {
+                        case 0:
+                            children = crossoverToCycle(parent1, parent2);
+                            break;
+                        case 1:
+                            children = crossoverInCycle(parent1, parent2);
+                            break;
+                        case 2:
+                            children = crossoverAcrossCycle(parent1, parent2);
+                            break;
+                    }
+
+                    child1 = children.get(0);
+                    child2 = children.get(1);
+
+                    // 检查子代个体是否与父代个体相同
+                    isChildrenSameAsParents = child1.equals(parent1) && child2.equals(parent2);
+
+                    // 如果相同,则切换到另一种交叉方法
+                    if (isChildrenSameAsParents) {
+                        mutationType = (mutationType + 1) % 3;
+                        attempt += 1;
+                    }
                 }
-                child1 = children.get(0);
-                child2 = children.get(1);
                 newPopulation.add(child1);
                 newPopulation.add(child2);
             } else {
@@ -200,7 +249,9 @@ public class GeneticAlgo{
                 newPopulation.add(parent2);
             }
         }
-
+        List<Individual> diff = new ArrayList<>(population);
+        diff.removeAll(chosenAncestors);
+        initialPopulationCandidate.addAll(diff);
         return newPopulation;
     }
 
@@ -216,13 +267,12 @@ public class GeneticAlgo{
         return population.get(population.size() - 1); // 防止未选择到个体
     }
 
-
     private List<GeneticAlgo.Individual> mutate(List<GeneticAlgo.Individual> newPopulation) {
         for (Individual individual : newPopulation) {
             Random random = new Random();
             if (random.nextDouble() < MUTATION_RATE) {
                 // 选择变异类型
-                int mutationType = random.nextInt(3); // 0, 1, 或 2，分别代表删除、增加、系统事件
+                int mutationType = random.nextInt(2); // 0, 1, 或 2，分别代表删除、增加、系统事件
                 switch (mutationType) {
                     case 0:
                         mutateByDeletion(individual);
@@ -241,13 +291,17 @@ public class GeneticAlgo{
 
     private void mutateByDeletion(GeneticAlgo.Individual individual) {
         List<Action> deletedActionCandidate = new ArrayList<>();
+        List<FragmentNode> deletedFragmentCandidate = new ArrayList<>();
+        List<Integer> deletedIndexCandidate = new ArrayList<>();
         List<Action> redirectedActionCandidate = new ArrayList<>();
         for (int i = 1 ; i < individual.getActionsInCycle().size() - 1 ; i++) {
             String fn_after = individual.getActionsInCycle().get(i).target;
-            FragmentNode fn_before = individual.getActionsInCycle().get(i-1).findFragmentByAction(graphAdjustor.appGraph.getDirectedGraph().vertexSet());
+            FragmentNode fn_before = individual.getFragmentsInCycle().get(i-1);
             for (Action action : fn_before.getAllPaths()) {
                 if (Objects.equals(action.target, fn_after)) {
+                    deletedIndexCandidate.add(i);
                     deletedActionCandidate.add(individual.getActionsInCycle().get(i));
+                    deletedFragmentCandidate.add(individual.getFragmentsInCycle().get(i));
                     redirectedActionCandidate.add(action);
                     break;
                 }
@@ -257,22 +311,29 @@ public class GeneticAlgo{
             return;
         } else {
             int mutationIndex = random.nextInt(deletedActionCandidate.size());
-            individual.actionsInCycle.remove(deletedActionCandidate.get(mutationIndex));
-            individual.actionsInCycle.set(mutationIndex - 1, redirectedActionCandidate.get(mutationIndex));
+            individual.actionsInCycle.remove(deletedIndexCandidate.get(mutationIndex));
+            individual.fragmentsInCycle.remove(deletedIndexCandidate.get(mutationIndex));
+            individual.actionsInCycle.set(deletedIndexCandidate.get(mutationIndex) - 1, redirectedActionCandidate.get(mutationIndex));
+            individual.setFitness(-1);
         }
     }
     private void mutateByAddition(GeneticAlgo.Individual individual) {
+        List<Integer> addIndexCandidate = new ArrayList<>();
         List<Action> addActionCandidate = new ArrayList<>();
+        List<FragmentNode> addFragmentCandidate = new ArrayList<>();
         List<Action> redirectedActionCandidate = new ArrayList<>();
         for (int i = 0 ; i < individual.getActionsInCycle().size() - 1 ; i++) {
             String fn_after = individual.getActionsInCycle().get(i).target;
-            FragmentNode fn_before = individual.getActionsInCycle().get(i).findFragmentByAction(graphAdjustor.appGraph.getDirectedGraph().vertexSet());
+            FragmentNode fn_before = individual.getFragmentsInCycle().get(i);
             for (Action action_before : fn_before.getAllPaths()) {
                 FragmentNode fn_mid = graphAdjustor.appGraph.getFragment(action_before.target);
                 for (Action action_mid : fn_mid.getAllPaths()) {
                     if (Objects.equals(action_mid.target, fn_after)) {
+                        addIndexCandidate.add(i);
+                        addFragmentCandidate.add(fn_mid);
                         addActionCandidate.add(action_mid);
                         redirectedActionCandidate.add(action_before);
+                        individual.setFitness(-1);
                     }
                 }
             }
@@ -281,21 +342,29 @@ public class GeneticAlgo{
             return;
         } else {
             int mutationIndex = random.nextInt(addActionCandidate.size());
-            individual.actionsInCycle.add(addActionCandidate.get(mutationIndex));
-            individual.actionsInCycle.set(mutationIndex - 1, redirectedActionCandidate.get(mutationIndex));
+            individual.actionsInCycle.add(addIndexCandidate.get(mutationIndex) + 1, addActionCandidate.get(mutationIndex));
+            individual.fragmentsInCycle.add(addIndexCandidate.get(mutationIndex), addFragmentCandidate.get(mutationIndex));
+            individual.actionsInCycle.set(addIndexCandidate.get(mutationIndex), redirectedActionCandidate.get(mutationIndex));
         }
     }
     private void mutateBySystemEvent(GeneticAlgo.Individual individual) {
         int mutationIndex = random.nextInt(individual.getActionsInCycle().size());
         int mutationType = random.nextInt(2); // 0, 1, 或 2，分别代表不同系统事件
+        FragmentNode fragmentToMutate = individual.getFragmentsInCycle().get(mutationIndex);
         switch (mutationType) {
             case 0:
                 individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWDOWN));
+                individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
                 individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWRIGHT));
+                individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
+                individual.setFitness(-1);
                 break;
             case 1:
                 individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.DISABLEBT));
+                individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
                 individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ENABLEBT));
+                individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
+                individual.setFitness(-1);
                 break;
         }
     }
@@ -305,17 +374,18 @@ public class GeneticAlgo{
         return population.get(0); // Placeholder
     }
     public List<GeneticAlgo.Individual> crossoverInCycle(GeneticAlgo.Individual parent1, GeneticAlgo.Individual parent2) {
-        List<Action> parentActionsToCycle1 = parent1.getActionsToCycle();
-        List<Action> parentActionsToCycle2 = parent2.getActionsToCycle();
-        List<Action> parentActionsInCycle1 = parent1.getActionsInCycle();
-        List<Action> parentActionsInCycle2 = parent2.getActionsInCycle();
-        List<FragmentNode> parentFragmentsToCycle1 = parent1.getFragmentsToCycle();
-        List<FragmentNode> parentFragmentsToCycle2 = parent2.getFragmentsToCycle();
-        List<FragmentNode> parentFragmentsInCycle1 = parent1.getFragmentsInCycle();
-        List<FragmentNode> parentFragmentsInCycle2 = parent2.getFragmentsInCycle();
-
+        List<Action> parentActionsToCycle1 = new ArrayList<>(parent1.getActionsToCycle());
+        List<Action> parentActionsToCycle2 = new ArrayList<>(parent2.getActionsToCycle());
+        List<Action> parentActionsInCycle1 = new ArrayList<>(parent1.getActionsInCycle());
+        List<Action> parentActionsInCycle2 = new ArrayList<>(parent2.getActionsInCycle());
+        List<FragmentNode> parentFragmentsToCycle1 = new ArrayList<>(parent1.getFragmentsToCycle());
+        List<FragmentNode> parentFragmentsToCycle2 = new ArrayList<>(parent2.getFragmentsToCycle());
+        List<FragmentNode> parentFragmentsInCycle1 = new ArrayList<>(parent1.getFragmentsInCycle());
+        List<FragmentNode> parentFragmentsInCycle2 = new ArrayList<>(parent2.getFragmentsInCycle());
         List<FragmentNode> commonFragmentsInCycle = new ArrayList<>(parentFragmentsInCycle1);
         commonFragmentsInCycle.retainAll(parentFragmentsInCycle2);
+        GeneticAlgo.Individual child1 = parent1;
+        GeneticAlgo.Individual child2 = parent2;
         if (commonFragmentsInCycle.isEmpty()) {
             return Arrays.asList(parent1, parent2);
         }
@@ -323,104 +393,124 @@ public class GeneticAlgo{
         FragmentNode crossoverPoint = commonFragmentsInCycle.get(crossoverIndex);
         int crossoverIndex1 = parentFragmentsInCycle1.indexOf(crossoverPoint);
         int crossoverIndex2 = parentFragmentsInCycle2.indexOf(crossoverPoint);
+        try{
+            List<Action> childActionsInCycle1 = new ArrayList<>();
+            childActionsInCycle1.addAll(parentActionsInCycle1.subList(0, crossoverIndex1));
+            childActionsInCycle1.addAll(parentActionsInCycle2.subList(crossoverIndex2, parentActionsInCycle2.size()));
+            childActionsInCycle1.addAll(parentActionsInCycle2.subList(0, crossoverIndex2));
+            childActionsInCycle1.addAll(parentActionsInCycle1.subList(crossoverIndex1, parentActionsInCycle1.size()));
+            List<FragmentNode> childFragmentsInCycle1 = new ArrayList<>();
+            childFragmentsInCycle1.addAll(parentFragmentsInCycle1.subList(0, crossoverIndex1));
+            childFragmentsInCycle1.addAll(parentFragmentsInCycle2.subList(crossoverIndex2, parentFragmentsInCycle2.size()));
+            childFragmentsInCycle1.addAll(parentFragmentsInCycle2.subList(0, crossoverIndex2));
+            childFragmentsInCycle1.addAll(parentFragmentsInCycle1.subList(crossoverIndex1, parentFragmentsInCycle1.size()));
 
-        List<Action> childActionsInCycle1 = new ArrayList<>();
-        childActionsInCycle1.addAll(parentActionsInCycle1.subList(0, crossoverIndex1));
-        childActionsInCycle1.addAll(parentActionsInCycle2.subList(crossoverIndex2, parentActionsInCycle2.size()));
-        childActionsInCycle1.addAll(parentActionsInCycle2.subList(0, crossoverIndex2));
-        childActionsInCycle1.addAll(parentActionsInCycle1.subList(crossoverIndex1, parentActionsInCycle1.size()));
-        List<FragmentNode> childFragmentsInCycle1 = new ArrayList<>();
-        childFragmentsInCycle1.addAll(parentFragmentsInCycle1.subList(0, crossoverIndex1));
-        childFragmentsInCycle1.addAll(parentFragmentsInCycle2.subList(crossoverIndex2, parentFragmentsInCycle2.size()));
-        childFragmentsInCycle1.addAll(parentFragmentsInCycle2.subList(0, crossoverIndex2));
-        childFragmentsInCycle1.addAll(parentFragmentsInCycle1.subList(crossoverIndex1, parentFragmentsInCycle1.size()));
+            List<Action> childActionsInCycle2 = new ArrayList<>();
+            childActionsInCycle2.addAll(parentActionsInCycle2.subList(0, crossoverIndex2));
+            childActionsInCycle2.addAll(parentActionsInCycle1.subList(crossoverIndex1, parentActionsInCycle1.size()));
+            childActionsInCycle2.addAll(parentActionsInCycle1.subList(0, crossoverIndex1));
+            childActionsInCycle2.addAll(parentActionsInCycle2.subList(crossoverIndex2, parentActionsInCycle2.size()));
+            List<FragmentNode> childFragmentsInCycle2 = new ArrayList<>();
+            childFragmentsInCycle2.addAll(parentFragmentsInCycle2.subList(0, crossoverIndex2));
+            childFragmentsInCycle2.addAll(parentFragmentsInCycle1.subList(crossoverIndex1, parentFragmentsInCycle1.size()));
+            childFragmentsInCycle2.addAll(parentFragmentsInCycle1.subList(0, crossoverIndex1));
+            childFragmentsInCycle2.addAll(parentFragmentsInCycle2.subList(crossoverIndex2, parentFragmentsInCycle2.size()));
 
-        List<Action> childActionsInCycle2 = new ArrayList<>();
-        childActionsInCycle2.addAll(parentActionsInCycle2.subList(0, crossoverIndex2));
-        childActionsInCycle2.addAll(parentActionsInCycle1.subList(crossoverIndex1, parentActionsInCycle1.size()));
-        childActionsInCycle2.addAll(parentActionsInCycle1.subList(0, crossoverIndex1));
-        childActionsInCycle2.addAll(parentActionsInCycle2.subList(crossoverIndex2, parentActionsInCycle2.size()));
-        List<FragmentNode> childFragmentsInCycle2 = new ArrayList<>();
-        childFragmentsInCycle2.addAll(parentFragmentsInCycle2.subList(0, crossoverIndex2));
-        childFragmentsInCycle2.addAll(parentFragmentsInCycle1.subList(crossoverIndex1, parentFragmentsInCycle1.size()));
-        childFragmentsInCycle2.addAll(parentFragmentsInCycle1.subList(0, crossoverIndex1));
-        childFragmentsInCycle2.addAll(parentFragmentsInCycle2.subList(crossoverIndex2, parentFragmentsInCycle2.size()));
-
-        GeneticAlgo.Individual child1 = new Individual(parentActionsToCycle1, childActionsInCycle1, parentFragmentsToCycle1, childFragmentsInCycle1);
-        GeneticAlgo.Individual child2 = new Individual(parentActionsToCycle2, childActionsInCycle2, parentFragmentsToCycle2, childFragmentsInCycle2);
+            child1 = new Individual(parentActionsToCycle1, childActionsInCycle1, parentFragmentsToCycle1, childFragmentsInCycle1);
+            child2 = new Individual(parentActionsToCycle2, childActionsInCycle2, parentFragmentsToCycle2, childFragmentsInCycle2);
+        } catch (Exception e) {
+            CommonUtil.log(String.valueOf(e));
+        }
         return Arrays.asList(child1, child2);
     }
     public List<GeneticAlgo.Individual> crossoverAcrossCycle(GeneticAlgo.Individual parent1, GeneticAlgo.Individual parent2) {
-        List<Action> parentActionsToCycle1 = parent1.getActionsToCycle();
-        List<Action> parentActionsToCycle2 = parent2.getActionsToCycle();
-        List<Action> parentActionsInCycle1 = parent1.getActionsInCycle();
-        List<Action> parentActionsInCycle2 = parent2.getActionsInCycle();
-        List<FragmentNode> parentFragmentsToCycle1 = parent1.getFragmentsToCycle();
-        List<FragmentNode> parentFragmentsToCycle2 = parent2.getFragmentsToCycle();
-        List<FragmentNode> parentFragmentsInCycle1 = parent1.getFragmentsInCycle();
-        List<FragmentNode> parentFragmentsInCycle2 = parent2.getFragmentsInCycle();
+        List<Action> parentActionsToCycle1 = new ArrayList<>(parent1.getActionsToCycle());
+        List<Action> parentActionsToCycle2 = new ArrayList<>(parent2.getActionsToCycle());
+        List<Action> parentActionsInCycle1 = new ArrayList<>(parent1.getActionsInCycle());
+        List<Action> parentActionsInCycle2 = new ArrayList<>(parent2.getActionsInCycle());
+        List<FragmentNode> parentFragmentsToCycle1 = new ArrayList<>(parent1.getFragmentsToCycle());
+        List<FragmentNode> parentFragmentsToCycle2 = new ArrayList<>(parent2.getFragmentsToCycle());
+        List<FragmentNode> parentFragmentsInCycle1 = new ArrayList<>(parent1.getFragmentsInCycle());
+        List<FragmentNode> parentFragmentsInCycle2 = new ArrayList<>(parent2.getFragmentsInCycle());
         GeneticAlgo.Individual child1 = parent1;
         GeneticAlgo.Individual child2 = parent2;
 
         // parent1ToCycle with parent2InCycle
         List<FragmentNode> commonFragmentsAcrossCycle2 = new ArrayList<>(parentFragmentsToCycle1);
         commonFragmentsAcrossCycle2.retainAll(parentFragmentsInCycle2);
-        if (!commonFragmentsAcrossCycle2.isEmpty()) {
-            FragmentNode crossoverPoint = commonFragmentsAcrossCycle2.get(random.nextInt(commonFragmentsAcrossCycle2.size()));
-            int crossoverIndex1 = parentFragmentsToCycle1.indexOf(crossoverPoint);
-            int crossoverIndex2 = parentFragmentsInCycle2.indexOf(crossoverPoint);
-            List<Action> childActionsToCycle = new ArrayList<>();
-            List<FragmentNode> childFragmentsToCycle = new ArrayList<>();
-            childActionsToCycle.addAll(parentActionsToCycle1.subList(0, crossoverIndex1));
-            childActionsToCycle.addAll(parentActionsInCycle2.subList(crossoverIndex2, parentActionsInCycle2.size()));
-            childFragmentsToCycle.addAll(parentFragmentsToCycle1.subList(0, crossoverIndex1));
-            childFragmentsToCycle.addAll(parentFragmentsInCycle2.subList(crossoverIndex2, parentFragmentsInCycle2.size()));
-            child1 = new Individual(childActionsToCycle, parentActionsInCycle2, childFragmentsToCycle, parentFragmentsInCycle2);
-        }
+        try {
+            if (!commonFragmentsAcrossCycle2.isEmpty()) {
+                FragmentNode crossoverPoint = commonFragmentsAcrossCycle2.get(random.nextInt(commonFragmentsAcrossCycle2.size()));
+                int crossoverIndex1 = parentFragmentsToCycle1.indexOf(crossoverPoint);
+                int crossoverIndex2 = parentFragmentsInCycle2.indexOf(crossoverPoint);
+                List<Action> childActionsToCycle = new ArrayList<>();
+                List<FragmentNode> childFragmentsToCycle = new ArrayList<>();
+                childActionsToCycle.addAll(parentActionsToCycle1.subList(0, crossoverIndex1));
+                childActionsToCycle.addAll(parentActionsInCycle2.subList(crossoverIndex2, parentActionsInCycle2.size()));
+                childFragmentsToCycle.addAll(parentFragmentsToCycle1.subList(0, crossoverIndex1));
+                childFragmentsToCycle.addAll(parentFragmentsInCycle2.subList(crossoverIndex2, parentFragmentsInCycle2.size()));
+                child1 = new Individual(childActionsToCycle, parentActionsInCycle2, childFragmentsToCycle, parentFragmentsInCycle2);
+            }
 
-        // parent2ToCycle with parent1InCycle
-        List<FragmentNode> commonFragmentsAcrossCycle1 = new ArrayList<>(parentFragmentsToCycle2);
-        commonFragmentsAcrossCycle1.retainAll(parentFragmentsInCycle1);
-        if (!commonFragmentsAcrossCycle1.isEmpty()) {
-            FragmentNode crossoverPoint = commonFragmentsAcrossCycle1.get(random.nextInt(commonFragmentsAcrossCycle1.size()));
-            int crossoverIndex1 = parentFragmentsToCycle2.indexOf(crossoverPoint);
-            int crossoverIndex2 = parentFragmentsInCycle1.indexOf(crossoverPoint);
-            List<Action> childActionsToCycle = new ArrayList<>();
-            List<FragmentNode> childFragmentsToCycle = new ArrayList<>();
-            childActionsToCycle.addAll(parentActionsToCycle2.subList(0, crossoverIndex1));
-            childActionsToCycle.addAll(parentActionsInCycle1.subList(crossoverIndex2, parentActionsInCycle1.size()));
-            childFragmentsToCycle.addAll(parentFragmentsToCycle2.subList(0, crossoverIndex1));
-            childFragmentsToCycle.addAll(parentFragmentsInCycle1.subList(crossoverIndex2, parentFragmentsInCycle1.size()));
-            child2 = new Individual(childActionsToCycle, parentActionsInCycle1, childFragmentsToCycle, parentFragmentsInCycle1);
+            // parent2ToCycle with parent1InCycle
+            List<FragmentNode> commonFragmentsAcrossCycle1 = new ArrayList<>(parentFragmentsToCycle2);
+            commonFragmentsAcrossCycle1.retainAll(parentFragmentsInCycle1);
+            if (!commonFragmentsAcrossCycle1.isEmpty()) {
+                FragmentNode crossoverPoint = commonFragmentsAcrossCycle1.get(random.nextInt(commonFragmentsAcrossCycle1.size()));
+                int crossoverIndex1 = parentFragmentsToCycle2.indexOf(crossoverPoint);
+                int crossoverIndex2 = parentFragmentsInCycle1.indexOf(crossoverPoint);
+                List<Action> childActionsToCycle = new ArrayList<>();
+                List<FragmentNode> childFragmentsToCycle = new ArrayList<>();
+                childActionsToCycle.addAll(parentActionsToCycle2.subList(0, crossoverIndex1));
+                childActionsToCycle.addAll(parentActionsInCycle1.subList(crossoverIndex2, parentActionsInCycle1.size()));
+                childFragmentsToCycle.addAll(parentFragmentsToCycle2.subList(0, crossoverIndex1));
+                childFragmentsToCycle.addAll(parentFragmentsInCycle1.subList(crossoverIndex2, parentFragmentsInCycle1.size()));
+                child2 = new Individual(childActionsToCycle, parentActionsInCycle1, childFragmentsToCycle, parentFragmentsInCycle1);
+            }
+        } finally {
         }
-
         return Arrays.asList(child1, child2);
     }
     public List<GeneticAlgo.Individual> crossoverToCycle(GeneticAlgo.Individual parent1, GeneticAlgo.Individual parent2) {
-        List<Action> parentActionsToCycle1 = parent1.getActionsToCycle();
-        List<Action> parentActionsToCycle2 = parent2.getActionsToCycle();
-        if (parentActionsToCycle1.isEmpty() || parentActionsToCycle2.isEmpty()) return null;
+        List<Action> parentActionsToCycle1 = new ArrayList<>(parent1.getActionsToCycle());
+        List<Action> parentActionsToCycle2 = new ArrayList<>(parent2.getActionsToCycle());
+        List<Action> parentActionsInCycle1 = new ArrayList<>(parent1.getActionsInCycle());
+        List<Action> parentActionsInCycle2 = new ArrayList<>(parent2.getActionsInCycle());
+        List<FragmentNode> parentFragmentsToCycle1 = new ArrayList<>(parent1.getFragmentsToCycle());
+        List<FragmentNode> parentFragmentsToCycle2 = new ArrayList<>(parent2.getFragmentsToCycle());
+        List<FragmentNode> parentFragmentsInCycle1 = new ArrayList<>(parent1.getFragmentsInCycle());
+        List<FragmentNode> parentFragmentsInCycle2 = new ArrayList<>(parent2.getFragmentsInCycle());
+        if (parentActionsToCycle1.isEmpty() || parentActionsToCycle2.isEmpty()) return Arrays.asList(parent1, parent2);
 
-        Optional<String> crossoverPoint = findCommonTarget(parentActionsToCycle1, parentActionsToCycle2);
-        if (!crossoverPoint.isPresent()) {
-            // No common target found, cannot perform crossover
+        List<FragmentNode> commonFragmentsToCycle = new ArrayList<>(parentFragmentsToCycle1);
+        commonFragmentsToCycle.retainAll(parentFragmentsToCycle2);
+        if (commonFragmentsToCycle.isEmpty()) {
+            return Arrays.asList(parent1, parent2);
+        }
+        int crossoverIndex = random.nextInt(commonFragmentsToCycle.size());
+        FragmentNode crossoverPoint = commonFragmentsToCycle.get(crossoverIndex);
+        int index1 = parentFragmentsToCycle1.indexOf(crossoverPoint);
+        int index2 = parentFragmentsToCycle2.indexOf(crossoverPoint);
+
+        // Create new child lists by swapping the tails at the crossover point
+        try {
+            List<Action> childActionsToCycle1 = new ArrayList<>(parentActionsToCycle1.subList(0, index1));
+            List<FragmentNode> childFragmentsToCycle1 = new ArrayList<>(parentFragmentsToCycle1.subList(0, index1));
+            childActionsToCycle1.addAll(parentActionsToCycle2.subList(index2, parentActionsToCycle2.size()));
+            childFragmentsToCycle1.addAll(parentFragmentsToCycle2.subList(index2, parentFragmentsToCycle2.size()));
+
+            List<Action> childActionsToCycle2 = new ArrayList<>(parentActionsToCycle2.subList(0, index2));
+            List<FragmentNode> childFragmentsToCycle2 = new ArrayList<>(parentFragmentsToCycle2.subList(0, index2));
+            childActionsToCycle2.addAll(parentActionsToCycle1.subList(index1, childActionsToCycle1.size()));
+            childFragmentsToCycle2.addAll(parentFragmentsToCycle1.subList(index1, parentFragmentsToCycle1.size()));
+
+            GeneticAlgo.Individual child1 = new Individual(childActionsToCycle1, parentActionsInCycle2, childFragmentsToCycle1, parentFragmentsInCycle2);
+            GeneticAlgo.Individual child2 = new Individual(childActionsToCycle2, parentActionsInCycle1, childFragmentsToCycle2, parentFragmentsInCycle1);
+            return Arrays.asList(child1, child2);
+        } catch (Exception e) {
             return Arrays.asList(parent1, parent2);
         }
 
-        String commonTarget = crossoverPoint.get();
-        int index1 = findFirstOccurrence(parentActionsToCycle1, commonTarget);
-        int index2 = findFirstOccurrence(parentActionsToCycle2, commonTarget);
-
-        // Create new child lists by swapping the tails at the crossover point
-        List<Action> childActionsToCycle1 = new ArrayList<>(parentActionsToCycle1.subList(0, index1 + 1));
-        childActionsToCycle1.addAll(parentActionsToCycle2.subList(index2 + 1, parentActionsToCycle2.size()));
-
-        List<Action> childActionsToCycle2 = new ArrayList<>(parentActionsToCycle2.subList(0, index2 + 1));
-        childActionsToCycle2.addAll(childActionsToCycle1.subList(index1 + 1, childActionsToCycle1.size()));
-
-        GeneticAlgo.Individual child1 = new Individual(childActionsToCycle1, parent2.getActionsInCycle(), graphAdjustor.appGraph.getDirectedGraph().vertexSet());
-        GeneticAlgo.Individual child2 = new Individual(childActionsToCycle2, parent1.getActionsInCycle(), graphAdjustor.appGraph.getDirectedGraph().vertexSet());
-        return Arrays.asList(child1, child2);
     }
 
     private static Optional<String> findCommonTarget(List<Action> parent1, List<Action> parent2) {
@@ -449,7 +539,7 @@ public class GeneticAlgo{
         return null;
     }
     // Inner class to represent an individual in the population
-    public static class Individual {
+    public static class Individual implements Serializable {
         public List<Action> actionsToCycle;
         public List<FragmentNode> fragmentsToCycle;
         public List<Action> actionsInCycle;
@@ -459,17 +549,17 @@ public class GeneticAlgo{
         public Boolean canExecute = true;
 
         public Individual(List<Action> actionsToCycle, List<Action> actionsInCycle, Set<FragmentNode> fragmentSet) {
-            this.actionsToCycle = actionsToCycle;
-            this.actionsInCycle = actionsInCycle;
-            this.fragmentsToCycle = setFragmentsByActions(fragmentSet, actionsToCycle);
-            this.fragmentsInCycle = setFragmentsByActions(fragmentSet, actionsInCycle);
+            this.actionsToCycle = new ArrayList<>(actionsToCycle); // 创建新的列表,避免共享引用
+            this.actionsInCycle = new ArrayList<>(actionsInCycle);
+            this.fragmentsToCycle = setFragmentsByActions(fragmentSet, this.actionsToCycle);
+            this.fragmentsInCycle = setFragmentsByActions(fragmentSet, this.actionsInCycle);
             this.fitness = -1.0;
         }
         public Individual(List<Action> actionsToCycle, List<Action> actionsInCycle, List<FragmentNode> fragmentsToCycle, List<FragmentNode> fragmentsInCycle) {
-            this.actionsToCycle = actionsToCycle;
-            this.actionsInCycle = actionsInCycle;
-            this.fragmentsToCycle = fragmentsToCycle;
-            this.fragmentsInCycle = fragmentsInCycle;
+            this.actionsToCycle = new ArrayList<>(actionsToCycle);
+            this.actionsInCycle = new ArrayList<>(actionsInCycle);
+            this.fragmentsToCycle = new ArrayList<>(fragmentsToCycle);
+            this.fragmentsInCycle = new ArrayList<>(fragmentsInCycle);
             this.fitness = -1.0;
         }
         private List<FragmentNode> setFragmentsByActions(Set<FragmentNode> fragmentSet, List<Action> actions) {
@@ -502,7 +592,45 @@ public class GeneticAlgo{
         public double getFitness() {
             return fitness;
         }
+        public boolean validate() {
+            for (int i = 0 ; i < actionsToCycle.size() - 1 ; i++) {
+                Action action = actionsToCycle.get(i);
+                FragmentNode fn_before = fragmentsToCycle.get(i);
+                FragmentNode fn_next = fragmentsToCycle.get(i+1);
+                if (!Objects.equals(action.target, fn_next.getSignature())) {
+                    return false;
+                }
+            }
+            for (int i = 0 ; i < actionsInCycle.size() - 1 ; i++) {
+                Action action = actionsInCycle.get(i);
+                FragmentNode fn_before = fragmentsInCycle.get(i);
+                FragmentNode fn_next = fragmentsInCycle.get(i+1);
+                if (!Objects.equals(action.target, fn_next.getSignature())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        @Override
+        public boolean equals(Object obj) {
+            // 1. 检查非空性
+            if (obj == null) {
+                return false;
+            }
 
-        // Other methods for individual management
+            // 2. 检查是否为同一个对象
+            if (this == obj) {
+                return true;
+            }
+
+            // 3. 检查对象类型
+            if (getClass() != obj.getClass()) {
+                return false;
+            }
+
+            // 4. 转型并比较属性值
+            Individual other = (Individual) obj;
+            return (this.fragmentsToCycle == other.fragmentsToCycle) && (this.fragmentsInCycle == other.fragmentsInCycle);
+        }
     }
 }

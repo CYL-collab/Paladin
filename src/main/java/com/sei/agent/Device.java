@@ -365,7 +365,10 @@ public class Device extends Thread{
             // newTree = currentTree;
             newTree = getCurrentTree();
         }
-
+        if (newTree.treeStructureHash == 0) {
+            CommonUtil.sleep(1000);
+            newTree = getCurrentTree();
+        }
         return response;
     }
 
