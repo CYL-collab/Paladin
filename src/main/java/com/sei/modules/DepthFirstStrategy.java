@@ -47,8 +47,19 @@ public class DepthFirstStrategy implements Strategy{
 
         int p = device.fragmentStack.getPosition(newTree);
         //在栈中
-        if (p != top)
-            return new Decision(Decision.CODE.GO, device.fragmentStack.top().getSignature());
+        if (p != top) {
+            if (prev_decision.action == null) {
+                return new Decision(Decision.CODE.GO, device.fragmentStack.top().getSignature());
+            }
+            if (prev_decision.action.getAction() != Action.action_list.CAMERASHOT) {
+                return new Decision(Decision.CODE.GO, device.fragmentStack.top().getSignature());
+            } else {
+                for (int i = top - p ; i > 0 ; i--) {
+                    device.fragmentStack.pop();
+                }
+            }
+        }
+
 
         if (response == Device.UI.CAM) {
             new_action = new Action("test", Action.action_list.CAMERASHOT);

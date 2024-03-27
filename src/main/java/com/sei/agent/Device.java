@@ -143,6 +143,13 @@ public class Device extends Thread{
                         currentPage = currentTree.getActivityName()+'_'+currentTree.getTreeStructureHash();
                     } else
                         currentPage = newTree.getActivityName()+'_'+newTree.getTreeStructureHash();
+                    int count = 0;
+                    while (currentPage.endsWith("0") && count < 10) {
+                        newTree = getCurrentTree();
+                        currentPage = newTree.getActivityName()+'_'+newTree.getTreeStructureHash();
+                        CommonUtil.sleep(1000);
+                        count++;
+                    }
                     FragmentNode currentFn = graphAdjustor.appGraph.getFragment(currentPage);
                     int recover_response = UI.SAME;
                     if (!currentFn.equals(fn)) {

@@ -27,7 +27,7 @@ public class GeneticAlgo{
     private static final double MUTATION_RATE = 0.2;
     private static final double CROSSOVER_RATE = 0.9;
     private int repeatRunTimes = 5;
-    private int savingInterval = 5;
+    private int savingInterval = 3;
     private List<GeneticAlgo.Individual> population;
     private Device d;
     private final Scheduler scheduler;
