@@ -16,6 +16,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.*;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,11 +24,12 @@ import static com.sei.util.CommonUtil.random;
 
 public class GeneticAlgo{
     private static final int POPULATION_SIZE = 20;
-    private static final int MAX_GENERATIONS = 20;
+    private static final int MAX_GENERATIONS = 12;
     private static final double MUTATION_RATE = 0.2;
-    private static final double CROSSOVER_RATE = 0.9;
-    private int repeatRunTimes = 5;
-    private int savingInterval = 3;
+    private static final double CROSSOVER_RATE = 0.7;
+    private final int repeatRunTimes = 10;
+    private final int savingInterval = 2;
+    private final int maxCycleLength = 20;
     private List<GeneticAlgo.Individual> population;
     private Device d;
     private final Scheduler scheduler;
@@ -42,7 +44,7 @@ public class GeneticAlgo{
         this.initialPopulationCandidate = new ArrayList<GeneticAlgo.Individual>();
     }
 
-    public GeneticAlgo.Individual run() {
+    public void run() {
         long startTime = System.currentTimeMillis();
         for (int generation = 0; generation < MAX_GENERATIONS; generation++) {
             evaluatePopulation();
@@ -53,7 +55,24 @@ public class GeneticAlgo{
             population = selectAndReproduce();
             mutate(population);
         }
-        return findBestIndividual();
+        evaluatePopulation();
+        long timePassed = (System.currentTimeMillis() - startTime) / 1000;
+        savePopulation(MAX_GENERATIONS, timePassed);
+    }
+    public void runPareto() {
+        long startTime = System.currentTimeMillis();
+        for (int generation = 0; generation < MAX_GENERATIONS; generation++) {
+            evaluatePopulationPareto();
+            if (generation % savingInterval == 0 || generation == MAX_GENERATIONS - 1) {
+                long timePassed = (System.currentTimeMillis() - startTime) / 1000;
+                savePopulation(generation, timePassed);
+            }
+            population = selectAndReproducePareto();
+            mutate(population);
+        }
+        evaluatePopulation();
+        long timePassed = (System.currentTimeMillis() - startTime) / 1000;
+        savePopulation(MAX_GENERATIONS, timePassed);
     }
     private void savePopulation(int generation, long timePassed) {
         try {
@@ -143,6 +162,33 @@ public class GeneticAlgo{
         }
     }
 
+    private void evaluatePopulationPareto() {
+        for (int i = 0; i < population.size() ; i ++) {
+            Individual individual = population.get(i);
+            if (individual.fitness_metric > 0 && individual.fitness_len > 0 && individual.canExecute)
+                continue;
+            if (!individual.canExecute) {
+                individual.fitness_metric = -1.0;
+                individual.fitness_len = -1.0;
+                population.remove(individual);
+                i--;
+                initialPopulationCandidate.remove(individual);
+                if (!initialPopulationCandidate.isEmpty()) {
+                    int addIndex = random.nextInt(initialPopulationCandidate.size());
+                    population.add(initialPopulationCandidate.get(addIndex));
+                }
+            }
+            double[] fitnesses = evaluateFitnessPareto(individual);
+            if (fitnesses != null) {
+                individual.canExecute = true;
+                individual.setFitnesses(fitnesses[0], fitnesses[1]);
+            } else {
+                individual.canExecute = false;
+                individual.setFitnesses(-1.0, -1.0);
+            }
+        }
+    }
+
     private Double evaluateFitness(GeneticAlgo.Individual individual) {
         List<Action> actions = new ArrayList<>(individual.getActionsToCycle());
         List<FragmentNode> fragments = new ArrayList<>(individual.getFragmentsToCycle());
@@ -167,7 +213,40 @@ public class GeneticAlgo{
         } catch (Exception e){
             return null;
         }
+        if (!individual.canExecute) {
+            return null;
+        }
         return Math.max(pssGrowth + rssGrowth, 0) + 100000 / (individual.getActionsInCycle().size()+individual.getActionsToCycle().size());
+    }
+
+    private double[] evaluateFitnessPareto(GeneticAlgo.Individual individual) {
+        List<Action> actions = new ArrayList<>(individual.getActionsToCycle());
+        List<FragmentNode> fragments = new ArrayList<>(individual.getFragmentsToCycle());
+        for (int i = 0; i < repeatRunTimes ; i ++) {
+            actions.addAll(individual.getActionsInCycle());
+            fragments.addAll(individual.getFragmentsInCycle());
+        }
+        Double rssGrowth = null;
+        Double pssGrowth = null;
+        try{
+            ClientAdaptor.stopApp(d, d.current_pkg);
+            ClientAdaptor.startApp(d, d.current_pkg);
+            List<Double> metricBefore = collectMetric();
+            Double pssBefore = metricBefore.get(0);
+            Double rssBefore = metricBefore.get(1);
+            runIndividual(individual, actions, fragments);
+            List<Double> metricAfter = collectMetric();
+            Double pssAfter = metricAfter.get(0);
+            Double rssAfter = metricAfter.get(1);
+            pssGrowth = pssAfter - pssBefore;
+            rssGrowth = rssAfter - rssBefore;
+        } catch (Exception e){
+            return null;
+        }
+        if (!individual.canExecute) {
+            return null;
+        }
+        return new double[]{Math.max(pssGrowth + rssGrowth, 0), (double) 1 / individual.getActionsInCycle().size()};
     }
 
     private List<Double> collectMetric() {
@@ -255,6 +334,84 @@ public class GeneticAlgo{
         return newPopulation;
     }
 
+    private List<GeneticAlgo.Individual> selectAndReproducePareto() {
+//        double totalFitness_metric = 0.0;
+//        double totalFitness_len = 0.0;
+//        for (Individual individual : population) {
+//            List<Double> fitnesses = individual.getFitnesses();
+//            totalFitness_metric += fitnesses.get(0);
+//            totalFitness_len += fitnesses.get(1);
+//        }
+        List<GeneticAlgo.Individual> newPopulation = new ArrayList<>();
+        List<GeneticAlgo.Individual> chosenAncestors = new ArrayList<>();
+        Random random = new Random();
+
+        // 进行POPULATION_SIZE / 2次选择，因为每次选择都会产生两个后代
+        for (int i = 0; i < POPULATION_SIZE / 2; i++) {
+            GeneticAlgo.Individual parent1 = selectIndividualByRouletteWheelPareto();
+            GeneticAlgo.Individual parent2 = selectIndividualByRouletteWheelPareto();
+            chosenAncestors.add(parent1);
+            chosenAncestors.add(parent2);
+            // 确保两个父代不相同
+            while (parent1 == parent2) {
+                parent2 = selectIndividualByRouletteWheelPareto();
+            }
+
+            // 根据交叉率决定是否进行交叉
+            if (random.nextDouble() < CROSSOVER_RATE) {
+                GeneticAlgo.Individual child1 = null;
+                GeneticAlgo.Individual child2 = null;
+                int mutationType = random.nextInt(3); // 0, 1, 或 2，分别代表删除、增加、系统事件
+                List<Individual> children = null;
+                boolean isChildrenSameAsParents = true;
+                int attempt = 0;
+                while (isChildrenSameAsParents && attempt < 3) {
+                    switch (mutationType) {
+                        case 0:
+                            children = crossoverToCycle(parent1, parent2);
+                            break;
+                        case 1:
+                            children = crossoverInCycle(parent1, parent2);
+                            break;
+                        case 2:
+                            children = crossoverAcrossCycle(parent1, parent2);
+                            break;
+                    }
+
+                    child1 = children.get(0);
+                    child2 = children.get(1);
+
+                    if (child1.getActionsToCycle().size() > maxCycleLength) {
+                        child1 = parent1;
+                    }
+
+                    if (child2.getActionsToCycle().size() > maxCycleLength) {
+                        child2 = parent2;
+                    }
+
+                    // 检查子代个体是否与父代个体相同
+                    isChildrenSameAsParents = child1.equals(parent1) && child2.equals(parent2);
+
+                    // 如果相同,则切换到另一种交叉方法
+                    if (isChildrenSameAsParents) {
+                        mutationType = (mutationType + 1) % 3;
+                        attempt += 1;
+                    }
+                }
+                newPopulation.add(child1);
+                newPopulation.add(child2);
+            } else {
+                // 如果不进行交叉，直接将父代添加到新的种群中
+                newPopulation.add(parent1);
+                newPopulation.add(parent2);
+            }
+        }
+        List<Individual> diff = new ArrayList<>(population);
+        diff.removeAll(chosenAncestors);
+        initialPopulationCandidate.addAll(diff);
+        return newPopulation;
+    }
+
     private GeneticAlgo.Individual selectIndividualByRouletteWheel(double totalFitness) {
         double slice = Math.random() * totalFitness;
         double total = 0;
@@ -265,6 +422,48 @@ public class GeneticAlgo{
             }
         }
         return population.get(population.size() - 1); // 防止未选择到个体
+    }
+
+    private GeneticAlgo.Individual selectIndividualByRouletteWheelPareto() {
+        double[] ranks = new double[population.size()];
+        double totalRank = 0.0;
+        for (int i = 0; i < population.size(); i++) {
+            Individual ind = population.get(i);
+            int rank = getRank(ind, population);
+            ranks[i] = ((double) rank) / (Math.log(rank));
+            totalRank += ranks[i];
+        }
+
+        double r = Math.random() * totalRank;
+        double sum = 0.0;
+        for (int i = 0; i < ranks.length; i++) {
+            sum += ranks[i];
+            if (sum > r) {
+                return population.get(i);
+            }
+        }
+        // 如果所有层级都为空,则返回最后一个个体
+        return population.get(population.size() - 1);
+    }
+
+    private boolean dominates(Individual individual1, Individual individual2) {
+        double metric1 = individual1.getFitnesses().get(0);
+        double metric2 = individual2.getFitnesses().get(0);
+        double len1 = individual1.getFitnesses().get(1);
+        double len2 = individual2.getFitnesses().get(1);
+
+        // 如果individual1在两个目标上都优于individual2,则individual1支配individual2
+        return metric1 >= metric2 && len1 >= len2 && (metric1 > metric2 || len1 > len2);
+    }
+
+    public int getRank(Individual ind, List<Individual> population) {
+        int rank = 1;
+        for (Individual other : population) {
+            if (dominates(ind, other)) {
+                rank++;
+            }
+        }
+        return rank;
     }
 
     private List<GeneticAlgo.Individual> mutate(List<GeneticAlgo.Individual> newPopulation) {
@@ -315,6 +514,7 @@ public class GeneticAlgo{
             individual.fragmentsInCycle.remove(deletedIndexCandidate.get(mutationIndex));
             individual.actionsInCycle.set(deletedIndexCandidate.get(mutationIndex) - 1, redirectedActionCandidate.get(mutationIndex));
             individual.setFitness(-1);
+            individual.setFitnesses(-1, -1);
         }
     }
     private void mutateByAddition(GeneticAlgo.Individual individual) {
@@ -334,6 +534,7 @@ public class GeneticAlgo{
                         addActionCandidate.add(action_mid);
                         redirectedActionCandidate.add(action_before);
                         individual.setFitness(-1);
+                        individual.setFitnesses(-1, -1);
                     }
                 }
             }
@@ -358,6 +559,7 @@ public class GeneticAlgo{
                 individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWRIGHT));
                 individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
                 individual.setFitness(-1);
+                individual.setFitnesses(-1, -1);
                 break;
             case 1:
                 individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.DISABLEBT));
@@ -365,6 +567,7 @@ public class GeneticAlgo{
                 individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ENABLEBT));
                 individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
                 individual.setFitness(-1);
+                individual.setFitnesses(-1, -1);
                 break;
         }
     }
@@ -544,8 +747,11 @@ public class GeneticAlgo{
         public List<FragmentNode> fragmentsToCycle;
         public List<Action> actionsInCycle;
         public List<FragmentNode> fragmentsInCycle;
+        public int dominatingCount;
+        public List<Individual> dominatedIndividuals;
         private Double fitness;
-        private List<Double> fitnesses;
+        private Double fitness_metric;
+        private Double fitness_len;
         public Boolean canExecute = true;
 
         public Individual(List<Action> actionsToCycle, List<Action> actionsInCycle, Set<FragmentNode> fragmentSet) {
@@ -554,6 +760,8 @@ public class GeneticAlgo{
             this.fragmentsToCycle = setFragmentsByActions(fragmentSet, this.actionsToCycle);
             this.fragmentsInCycle = setFragmentsByActions(fragmentSet, this.actionsInCycle);
             this.fitness = -1.0;
+            this.fitness_metric = -1.0;
+            this.fitness_len = -1.0;
         }
         public Individual(List<Action> actionsToCycle, List<Action> actionsInCycle, List<FragmentNode> fragmentsToCycle, List<FragmentNode> fragmentsInCycle) {
             this.actionsToCycle = new ArrayList<>(actionsToCycle);
@@ -561,6 +769,8 @@ public class GeneticAlgo{
             this.fragmentsToCycle = new ArrayList<>(fragmentsToCycle);
             this.fragmentsInCycle = new ArrayList<>(fragmentsInCycle);
             this.fitness = -1.0;
+            this.fitness_metric = -1.0;
+            this.fitness_len = -1.0;
         }
         private List<FragmentNode> setFragmentsByActions(Set<FragmentNode> fragmentSet, List<Action> actions) {
             List<FragmentNode> fragments = new ArrayList<>();
@@ -588,7 +798,13 @@ public class GeneticAlgo{
         public void setFitness(double fitness) {
             this.fitness = fitness;
         }
-
+        public void setFitnesses(double fitness_metric, double fitness_len) {
+            this.fitness_len = fitness_len;
+            this.fitness_metric = fitness_metric;
+        }
+        public List<Double> getFitnesses() {
+            return new ArrayList<Double>(Arrays.asList(this.fitness_metric, this.fitness_len));
+        }
         public double getFitness() {
             return fitness;
         }

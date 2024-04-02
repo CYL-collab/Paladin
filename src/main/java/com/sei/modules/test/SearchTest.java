@@ -57,7 +57,7 @@ public class SearchTest extends Thread{
             }
         }
         geneticAlgo.initializePopulation();
-        geneticAlgo.run();
+        geneticAlgo.runPareto();
 //        try {
 //            runByActions(paths);
 //        }catch (Exception e){
