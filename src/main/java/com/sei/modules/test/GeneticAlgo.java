@@ -19,14 +19,15 @@ import java.util.*;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.sei.util.CommonUtil.random;
 
 public class GeneticAlgo{
-    private static final int POPULATION_SIZE = 20;
-    private static final int MAX_GENERATIONS = 12;
-    private static final double MUTATION_RATE = 0.2;
-    private static final double CROSSOVER_RATE = 0.7;
+    private static final int POPULATION_SIZE = 15;
+    private static final int MAX_GENERATIONS = 15;
+    private static final double MUTATION_RATE = 0.5;
+    private static final double CROSSOVER_RATE = 0.2;
     private final int repeatRunTimes = 10;
     private final int savingInterval = 2;
     private final int maxCycleLength = 20;
@@ -43,53 +44,101 @@ public class GeneticAlgo{
         this.graphAdjustor = scheduler.graphAdjustor;
         this.initialPopulationCandidate = new ArrayList<GeneticAlgo.Individual>();
     }
-
     public void run() {
         long startTime = System.currentTimeMillis();
         for (int generation = 0; generation < MAX_GENERATIONS; generation++) {
             evaluatePopulation();
             if (generation % savingInterval == 0 || generation == MAX_GENERATIONS - 1) {
                 long timePassed = (System.currentTimeMillis() - startTime) / 1000;
-                savePopulation(generation, timePassed);
+                // savePopulation(generation, timePassed);
             }
             population = selectAndReproduce();
             mutate(population);
         }
         evaluatePopulation();
         long timePassed = (System.currentTimeMillis() - startTime) / 1000;
-        savePopulation(MAX_GENERATIONS, timePassed);
+        // savePopulation(MAX_GENERATIONS, timePassed);
     }
     public void runPareto() {
         long startTime = System.currentTimeMillis();
         for (int generation = 0; generation < MAX_GENERATIONS; generation++) {
             evaluatePopulationPareto();
-            if (generation % savingInterval == 0 || generation == MAX_GENERATIONS - 1) {
+            if (generation % savingInterval == 0) {
                 long timePassed = (System.currentTimeMillis() - startTime) / 1000;
-                savePopulation(generation, timePassed);
+                // savePopulation(generation, timePassed);
             }
             population = selectAndReproducePareto();
             mutate(population);
         }
-        evaluatePopulation();
+        evaluatePopulationPareto();
         long timePassed = (System.currentTimeMillis() - startTime) / 1000;
-        savePopulation(MAX_GENERATIONS, timePassed);
+        // savePopulation(MAX_GENERATIONS, timePassed);
     }
-    private void savePopulation(int generation, long timePassed) {
-        try {
-            String filename = "population_gen_" + generation + "_" + timePassed + ".json";
-            File file = new File(filename);
-            FileWriter writer = new FileWriter(file);
-            String content = SerializeUtil.toBase64(this.population);
-            writer.write(content);
-            writer.close();
+    public void runPseudo() {
+        long startTime = System.currentTimeMillis();
+        String fileName = "population_over_generations.csv";
+        try (FileWriter writer = new FileWriter(fileName)) {
+            // 写入文件头部
+            writer.write("generation,id,cycle,length,fitness_metric\n");
+            for (int generation = 0; generation < MAX_GENERATIONS; generation++) {
+                evaluatePopulationPseudo();
+                double entropy = calculateEntropy();
+                CommonUtil.log("Gen:" + generation + " Entropy: " + entropy);
+                long timePassed = (System.currentTimeMillis() - startTime) / 1000;
+                savePopulation(writer, generation, 0); // 注意这里传递了writer
+                population = selectAndReproducePareto();
+                mutate(population);
+            }
+            evaluatePopulationPseudo();
         } catch (IOException e) {
-            System.err.println("Error saving population data: " + e.getMessage());
+            throw new RuntimeException("Failed to write to " + fileName, e);
         }
+    }
+    private void savePopulation(FileWriter writer, int generation, long timePassed) {
+        try {
+            for (Individual individual : population) {
+                List<String> signatures = individual.getFragmentsInCycle().stream()
+                        .map(FragmentNode::getSignature)
+                        .collect(Collectors.toList());
+                // 注意加入generation作为数据列
+                writer.write(generation + "," + individual.hashCode() + "," + "\"" + signatures + "\"" + "," + individual.getFragmentsInCycle().size() + "," + individual.getFitnesses().get(0) + "\n");
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to save population for generation " + generation, e);
+        }
+    }
+
+    private double calculateEntropy () {
+        Map<Individual, Integer> frequencyMap = new HashMap<>();
+        // 计算频率
+        for (Individual individual : population) {
+            frequencyMap.put(individual, frequencyMap.getOrDefault(individual, 0) + 1);
+        }
+
+        double entropy = 0.0;
+        int size = population.size();
+        // 计算概率和熵
+        for (int freq : frequencyMap.values()) {
+            double probability = (double) freq / size;
+            entropy -= probability * (Math.log(probability) / Math.log(2));
+        }
+        return entropy;
     }
     public void addToInitialPopulationCandidate(GeneticAlgo.Individual individual) {
         initialPopulationCandidate.add(individual);
     }
     public void initializePopulation() {
+        Collections.shuffle(initialPopulationCandidate);
+        List<GeneticAlgo.Individual> initialPopulation;
+        if (GeneticAlgo.POPULATION_SIZE <= initialPopulationCandidate.size()) {
+            initialPopulation = initialPopulationCandidate.subList(0, GeneticAlgo.POPULATION_SIZE);
+        } else {
+            initialPopulation = extendListToSize(initialPopulationCandidate);
+        }
+        this.population = initialPopulation;
+    }
+
+    public void initializePopulationWithDiversion() {
         Collections.shuffle(initialPopulationCandidate);
         List<GeneticAlgo.Individual> initialPopulation;
         if (GeneticAlgo.POPULATION_SIZE <= initialPopulationCandidate.size()) {
@@ -188,7 +237,87 @@ public class GeneticAlgo{
             }
         }
     }
-
+    private void evaluatePopulationPseudo() {
+        for (int i = 0; i < population.size() ; i ++) {
+            Individual individual = population.get(i);
+            if (individual.fitness_metric > 0 && individual.fitness_len > 0 && individual.canExecute)
+                continue;
+            if (!individual.canExecute) {
+                individual.fitness_metric = -1.0;
+                individual.fitness_len = -1.0;
+                population.remove(individual);
+                i--;
+                initialPopulationCandidate.remove(individual);
+                if (!initialPopulationCandidate.isEmpty()) {
+                    int addIndex = random.nextInt(initialPopulationCandidate.size());
+                    population.add(initialPopulationCandidate.get(addIndex));
+                }
+            }
+            individual.fitness_len = (double) 1 / individual.getActionsInCycle().size();
+            if (isLeaked(individual)) {
+                individual.fitness_metric = 10000.0;
+            } else {
+                individual.fitness_metric = 0.0;
+            }
+            if (individual.getFragmentsInCycle().size() > 10) {
+                individual.fitness_metric = -1.0;
+            }
+        }
+    }
+    private boolean isLeaked(Individual individual) {
+        boolean isLeaked = false;
+//        for (FragmentNode fn1 : individual.getFragmentsInCycle()) {
+//            if (Objects.equals(fn1.getSignature(), "MainActivity_1360430170")
+//                || Objects.equals(fn1.getSignature(), "MainActivity_1495749363")
+//            ) {
+//                for (FragmentNode fn2 : individual.getFragmentsInCycle()) {
+//                    if (Objects.equals(fn2.getSignature(), "MainActivity_-847221117")
+//                        || Objects.equals(fn2.getSignature(), "MainActivity_-2075763518")
+//                        || Objects.equals(fn2.getSignature(), "MainActivity_1314884666")
+//                        || Objects.equals(fn2.getSignature(), "MainActivity_-1696953291")
+//                        || Objects.equals(fn2.getSignature(), "MainActivity_1062520850")
+//                        || Objects.equals(fn2.getSignature(), "MainActivity_862220217")
+//                        || Objects.equals(fn2.getSignature(), "MainActivity_-571006335")
+//                    ) {
+//                        for (FragmentNode fn3 : individual.getFragmentsInCycle()) {
+//                            if (!Objects.equals(fn2.getSignature(), "MainActivity_-847221117")
+//                                || !Objects.equals(fn2.getSignature(), "MainActivity_-2075763518")
+//                                || !Objects.equals(fn2.getSignature(), "MainActivity_1314884666")
+//                                || !Objects.equals(fn2.getSignature(), "MainActivity_-1696953291")
+//                                || !Objects.equals(fn2.getSignature(), "MainActivity_1062520850")
+//                                || !Objects.equals(fn2.getSignature(), "MainActivity_862220217")
+//                                || !Objects.equals(fn2.getSignature(), "MainActivity_-571006335")
+//                                || !Objects.equals(fn1.getSignature(), "MainActivity_1360430170")
+//                                || !Objects.equals(fn1.getSignature(), "MainActivity_1495749363")) {
+//                                CommonUtil.log("Found leaked individual in Category fragment, cycle size: " + individual.getFragmentsInCycle().size());
+//                                isLeaked = true;
+//                                break;
+//                            }
+//                        }
+//                        if (isLeaked) break;
+//                    }
+//                }
+//            }
+//            if (isLeaked) break;
+//        }
+        for (FragmentNode fn1 : individual.getFragmentsInCycle()) {
+            if (Objects.equals(fn1.getSignature(), "MainActivity_-392515493")
+                || Objects.equals(fn1.getSignature(), "MainActivity_1180766279")
+                || Objects.equals(fn1.getSignature(), "MainActivity_1023513372")
+                || Objects.equals(fn1.getSignature(), "MainActivity_-1750633259")
+            ) {
+                for (FragmentNode fn2 : individual.getFragmentsInCycle()) {
+                    if (Objects.equals(fn2.getSignature(), "CreateAndEditRecipeActivity_1977549779")) {
+                        CommonUtil.log("Found leaked individual in CreateAndEditRecipe Activity, cycle size: " + individual.getFragmentsInCycle().size());
+                        isLeaked = true;
+                        break;
+                    }
+                }
+            }
+            if (isLeaked) break;
+        }
+        return isLeaked;
+    }
     private Double evaluateFitness(GeneticAlgo.Individual individual) {
         List<Action> actions = new ArrayList<>(individual.getActionsToCycle());
         List<FragmentNode> fragments = new ArrayList<>(individual.getFragmentsToCycle());
@@ -430,7 +559,7 @@ public class GeneticAlgo{
         for (int i = 0; i < population.size(); i++) {
             Individual ind = population.get(i);
             int rank = getRank(ind, population);
-            ranks[i] = ((double) rank) / (Math.log(rank));
+            ranks[i] = Math.sqrt(rank);
             totalRank += ranks[i];
         }
 
@@ -466,58 +595,71 @@ public class GeneticAlgo{
         return rank;
     }
 
-    private List<GeneticAlgo.Individual> mutate(List<GeneticAlgo.Individual> newPopulation) {
-        for (Individual individual : newPopulation) {
+    private List<GeneticAlgo.Individual> mutate(List<GeneticAlgo.Individual> population) {
+        List<GeneticAlgo.Individual> newPopulation = new ArrayList<>();
+        for (Individual individual : population) {
+            Individual newIndividual = individual;
             Random random = new Random();
             if (random.nextDouble() < MUTATION_RATE) {
                 // 选择变异类型
-                int mutationType = random.nextInt(2); // 0, 1, 或 2，分别代表删除、增加、系统事件
+                int mutationType = random.nextInt(3); // 0, 1, 或 2，分别代表删除、增加、系统事件
                 switch (mutationType) {
                     case 0:
-                        mutateByDeletion(individual);
+                        newIndividual = mutateByDeletion(individual);
                         break;
                     case 1:
-                        mutateByAddition(individual);
+                        newIndividual = mutateByAddition(individual);
                         break;
                     case 2:
-                        mutateBySystemEvent(individual);
+                        newIndividual = mutateByDeletion(individual);
                         break;
                 }
+            }
+            newPopulation.add(newIndividual);
+            if (newIndividual != individual) {
+                initialPopulationCandidate.add(individual);
             }
         }
         return newPopulation;
     }
 
-    private void mutateByDeletion(GeneticAlgo.Individual individual) {
-        List<Action> deletedActionCandidate = new ArrayList<>();
-        List<FragmentNode> deletedFragmentCandidate = new ArrayList<>();
+    private Individual mutateByDeletion(GeneticAlgo.Individual individual) {
+        if (individual.getActionsInCycle().size() < 6) {
+            return individual;
+        }
         List<Integer> deletedIndexCandidate = new ArrayList<>();
+        List<Integer> deletedActionNum = new ArrayList<>();
         List<Action> redirectedActionCandidate = new ArrayList<>();
-        for (int i = 1 ; i < individual.getActionsInCycle().size() - 1 ; i++) {
-            String fn_after = individual.getActionsInCycle().get(i).target;
-            FragmentNode fn_before = individual.getFragmentsInCycle().get(i-1);
-            for (Action action : fn_before.getAllPaths()) {
-                if (Objects.equals(action.target, fn_after)) {
-                    deletedIndexCandidate.add(i);
-                    deletedActionCandidate.add(individual.getActionsInCycle().get(i));
-                    deletedFragmentCandidate.add(individual.getFragmentsInCycle().get(i));
-                    redirectedActionCandidate.add(action);
-                    break;
+        for (int num = 4 ; num > 0 ; num--){
+            for (int i = 1 ; i < individual.getActionsInCycle().size() - num ; i++) {
+                FragmentNode fn_after = individual.getFragmentsInCycle().get(i+num);
+                FragmentNode fn_before = individual.getFragmentsInCycle().get(i-1);
+                for (Action action : fn_before.getAllPaths()) {
+                    if (Objects.equals(action.target, fn_after.getSignature())) {
+                        deletedIndexCandidate.add(i);
+                        deletedActionNum.add(num);
+                        redirectedActionCandidate.add(action);
+                        break;
+                    }
                 }
             }
         }
-        if (deletedActionCandidate.isEmpty()) {
-            return;
+        if (deletedIndexCandidate.isEmpty()) {
+            return individual;
         } else {
-            int mutationIndex = random.nextInt(deletedActionCandidate.size());
-            individual.actionsInCycle.remove(deletedIndexCandidate.get(mutationIndex));
-            individual.fragmentsInCycle.remove(deletedIndexCandidate.get(mutationIndex));
-            individual.actionsInCycle.set(deletedIndexCandidate.get(mutationIndex) - 1, redirectedActionCandidate.get(mutationIndex));
-            individual.setFitness(-1);
-            individual.setFitnesses(-1, -1);
+            Individual newIndividual = new Individual(individual);
+            int mutationIndex = random.nextInt(deletedIndexCandidate.size());
+            for (int j = 0; j < deletedActionNum.get(mutationIndex); j++) {
+                newIndividual.actionsInCycle.remove((int)deletedIndexCandidate.get(mutationIndex));
+                newIndividual.fragmentsInCycle.remove((int)deletedIndexCandidate.get(mutationIndex));
+            }
+            newIndividual.actionsInCycle.set(deletedIndexCandidate.get(mutationIndex) - 1, redirectedActionCandidate.get(mutationIndex));
+            newIndividual.setFitness(-1);
+            newIndividual.setFitnesses(-1, -1);
+            return newIndividual;
         }
     }
-    private void mutateByAddition(GeneticAlgo.Individual individual) {
+    private Individual mutateByAddition(GeneticAlgo.Individual individual) {
         List<Integer> addIndexCandidate = new ArrayList<>();
         List<Action> addActionCandidate = new ArrayList<>();
         List<FragmentNode> addFragmentCandidate = new ArrayList<>();
@@ -533,43 +675,47 @@ public class GeneticAlgo{
                         addFragmentCandidate.add(fn_mid);
                         addActionCandidate.add(action_mid);
                         redirectedActionCandidate.add(action_before);
-                        individual.setFitness(-1);
-                        individual.setFitnesses(-1, -1);
                     }
                 }
             }
         }
         if (addActionCandidate.isEmpty()) {
-            return;
+            return individual;
         } else {
+            Individual newIndividual = new Individual(individual);
             int mutationIndex = random.nextInt(addActionCandidate.size());
-            individual.actionsInCycle.add(addIndexCandidate.get(mutationIndex) + 1, addActionCandidate.get(mutationIndex));
-            individual.fragmentsInCycle.add(addIndexCandidate.get(mutationIndex), addFragmentCandidate.get(mutationIndex));
-            individual.actionsInCycle.set(addIndexCandidate.get(mutationIndex), redirectedActionCandidate.get(mutationIndex));
+            newIndividual.actionsInCycle.add(addIndexCandidate.get(mutationIndex) + 1, addActionCandidate.get(mutationIndex));
+            newIndividual.fragmentsInCycle.add(addIndexCandidate.get(mutationIndex), addFragmentCandidate.get(mutationIndex));
+            newIndividual.actionsInCycle.set(addIndexCandidate.get(mutationIndex), redirectedActionCandidate.get(mutationIndex));
+            newIndividual.setFitness(-1);
+            newIndividual.setFitnesses(-1, -1);
+            return newIndividual;
         }
     }
-    private void mutateBySystemEvent(GeneticAlgo.Individual individual) {
+    private Individual mutateBySystemEvent(GeneticAlgo.Individual individual) {
         int mutationIndex = random.nextInt(individual.getActionsInCycle().size());
         int mutationType = random.nextInt(2); // 0, 1, 或 2，分别代表不同系统事件
         FragmentNode fragmentToMutate = individual.getFragmentsInCycle().get(mutationIndex);
+        Individual newIndividual = new Individual(individual);
         switch (mutationType) {
             case 0:
-                individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWDOWN));
-                individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
-                individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWRIGHT));
-                individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
-                individual.setFitness(-1);
-                individual.setFitnesses(-1, -1);
+                newIndividual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWDOWN));
+                newIndividual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
+                newIndividual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ROWRIGHT));
+                newIndividual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
+                newIndividual.setFitness(-1);
+                newIndividual.setFitnesses(-1, -1);
                 break;
             case 1:
-                individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.DISABLEBT));
-                individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
-                individual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ENABLEBT));
-                individual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
-                individual.setFitness(-1);
-                individual.setFitnesses(-1, -1);
+                newIndividual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.DISABLEBT));
+                newIndividual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
+                newIndividual.actionsInCycle.add(mutationIndex, new Action(null, Action.action_list.ENABLEBT));
+                newIndividual.fragmentsInCycle.add(mutationIndex, fragmentToMutate);
+                newIndividual.setFitness(-1);
+                newIndividual.setFitnesses(-1, -1);
                 break;
         }
+        return newIndividual;
     }
 
     private GeneticAlgo.Individual findBestIndividual() {
@@ -772,6 +918,15 @@ public class GeneticAlgo{
             this.fitness_metric = -1.0;
             this.fitness_len = -1.0;
         }
+        public Individual(Individual individual) {
+            this.actionsToCycle = new ArrayList<>(individual.getActionsToCycle());
+            this.actionsInCycle = new ArrayList<>(individual.getActionsInCycle());
+            this.fragmentsToCycle = new ArrayList<>(individual.getFragmentsToCycle());
+            this.fragmentsInCycle = new ArrayList<>(individual.getFragmentsInCycle());
+            this.fitness = individual.getFitness();
+            this.fitness_metric = individual.getFitnesses().get(0);
+            this.fitness_len = individual.getFitnesses().get(1);
+        }
         private List<FragmentNode> setFragmentsByActions(Set<FragmentNode> fragmentSet, List<Action> actions) {
             List<FragmentNode> fragments = new ArrayList<>();
             for (Action action : actions) {
@@ -828,6 +983,10 @@ public class GeneticAlgo{
             return true;
         }
         @Override
+        public int hashCode() {
+            return this.fragmentsToCycle.hashCode() + this.fragmentsInCycle.hashCode();
+        }
+        @Override
         public boolean equals(Object obj) {
             // 1. 检查非空性
             if (obj == null) {
@@ -846,7 +1005,7 @@ public class GeneticAlgo{
 
             // 4. 转型并比较属性值
             Individual other = (Individual) obj;
-            return (this.fragmentsToCycle == other.fragmentsToCycle) && (this.fragmentsInCycle == other.fragmentsInCycle);
+            return (this.fragmentsToCycle.equals(other.fragmentsToCycle)) && (this.fragmentsInCycle.equals(other.fragmentsInCycle));
         }
     }
 }

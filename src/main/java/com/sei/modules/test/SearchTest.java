@@ -57,7 +57,7 @@ public class SearchTest extends Thread{
             }
         }
         geneticAlgo.initializePopulation();
-        geneticAlgo.runPareto();
+        geneticAlgo.runPseudo();
 //        try {
 //            runByActions(paths);
 //        }catch (Exception e){
@@ -69,7 +69,7 @@ public class SearchTest extends Thread{
         List<Action> pathToCycle = buildPath(sourceNode, cycleStartNode);
         List<Action> actions;
         List<FragmentNode> fragmentsToCycle;
-        if (cycle.size() < 3) return null;
+        // if (cycle.size() < 3) return null;
         if (pathToCycle == null ) {
             if (sourceNode != cycleStartNode) {
                 return null;

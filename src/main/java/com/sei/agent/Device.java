@@ -161,6 +161,7 @@ public class Device extends Thread{
                             throw new Exception("Individual not runnable");
                         }
                         recover_response = execute_actions(new Decision(Decision.CODE.CONTINUE, actionsToRecover));
+                        newTree = getCurrentTree();
                         if (recover_response != UI.NEW) {
                             //向search返回不可运行
                             searchRunnable = false;
